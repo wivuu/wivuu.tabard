@@ -8,12 +8,12 @@ internal static class Picker
     /// <summary>Returns the chosen profile, or null if the user quit or deleted everything.</summary>
     public static Profile? Show(List<Profile> profiles)
     {
-        if (Console.IsInputRedirected || Console.IsOutputRedirected)
+        if (!Term.Interactive)
             return ShowPlain(profiles);
 
         // Below this the frame cannot be drawn in place at all: rows would collapse onto the last
         // line and enter would launch an account nobody saw. Listing them is the honest fallback.
-        var maxRows = WindowHeight() - ChromeLines - 1;
+        var maxRows = Term.WindowHeight() - ChromeLines - 1;
         if (maxRows < 1)
             return ShowPlain(profiles);
 
@@ -43,7 +43,7 @@ internal static class Picker
 
         // The finally below cannot run if ^C terminates us, so restore the cursor from the
         // handler too - otherwise the user's terminal is left with no cursor at all.
-        void Restore(object? sender, ConsoleCancelEventArgs e) => ShowCursor();
+        void Restore(object? sender, ConsoleCancelEventArgs e) => Term.ShowCursor();
         Console.CancelKeyPress += Restore;
 
         try
@@ -116,7 +116,7 @@ internal static class Picker
                         break;
 
                     case ConsoleKey.Escape:
-                        if (SwallowSplitEscape())
+                        if (Term.SwallowSplitEscape())
                             break;
 
                         return Leave(null);
@@ -133,7 +133,7 @@ internal static class Picker
         finally
         {
             Console.CancelKeyPress -= Restore;
-            ShowCursor();
+            Term.ShowCursor();
         }
     }
 
@@ -169,7 +169,7 @@ internal static class Picker
         {
             var profile = profiles[i];
             var selected = i == index;
-            var name = Clip(profile.Name, NameWidth - 1).PadRight(NameWidth);
+            var name = Term.Clip(profile.Name, NameWidth - 1).PadRight(NameWidth);
             var marker = selected ? ">" : " ";
 
             if (i == armed)
@@ -194,7 +194,7 @@ internal static class Picker
         while (lines.Count < frameHeight)
             lines.Add(("", null));
 
-        var width = Math.Max(20, Console.WindowWidth - 1);
+        var width = Term.WindowWidth();
 
         for (var i = 0; i < frameHeight; i++)
         {
@@ -211,7 +211,7 @@ internal static class Picker
             if (color is { } c)
                 Console.ForegroundColor = c;
 
-            Console.Write(Clip(text, width).PadRight(width));
+            Console.Write(Term.Clip(text, width).PadRight(width));
             Console.ResetColor();
         }
     }
@@ -226,67 +226,6 @@ internal static class Picker
         catch
         {
             // Terminal resized under us; not worth failing over.
-        }
-    }
-
-    /// <summary>
-    /// An arrow key that arrives split across two reads surfaces as a bare Escape with the rest of
-    /// the sequence behind it, and quitting on that loses the user's keypress. Console.KeyAvailable
-    /// is no help - it stays false because the remainder is already buffered inside the reader - so
-    /// the only way to tell is a timed read: an introducer arriving within a few dozen milliseconds
-    /// was not typed by a human. On a real Escape that read is still outstanding when we return,
-    /// which is safe only because quitting the picker exits the process.
-    /// </summary>
-    private static bool SwallowSplitEscape()
-    {
-        var probe = Task.Run(() => Console.ReadKey(intercept: true));
-        if (!probe.Wait(TimeSpan.FromMilliseconds(50)) || probe.Result.KeyChar is not ('[' or 'O'))
-            return false;
-
-        while (Console.KeyAvailable)
-            Console.ReadKey(intercept: true);
-
-        return true;
-    }
-
-    /// <summary>
-    /// Trims to a UTF-16 length without splitting a surrogate pair. Not display columns - a row of
-    /// CJK still overflows - but it never emits half a character.
-    /// </summary>
-    private static string Clip(string text, int max)
-    {
-        if (text.Length <= max)
-            return text;
-
-        var end = max;
-        if (end > 0 && char.IsHighSurrogate(text[end - 1]))
-            end--;
-
-        return text[..end];
-    }
-
-    private static int WindowHeight()
-    {
-        try
-        {
-            return Console.WindowHeight;
-        }
-        catch
-        {
-            return 0;
-        }
-    }
-
-    private static void ShowCursor()
-    {
-        try
-        {
-            Console.CursorVisible = true;
-            Console.ResetColor();
-        }
-        catch
-        {
-            // Nothing useful to do if the terminal has gone.
         }
     }
 
