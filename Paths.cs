@@ -3,11 +3,15 @@ namespace Envy.Cli;
 internal static class Paths
 {
     public static string Home { get; } =
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile, Environment.SpecialFolderOption.DoNotVerify);
+        Environment.GetFolderPath(
+            Environment.SpecialFolder.UserProfile,
+            Environment.SpecialFolderOption.DoNotVerify
+        );
 
     public static string EnvyRoot { get; } = Path.Combine(Home, ".envy");
     public static string ProfilesRoot { get; } = Path.Combine(EnvyRoot, "profiles");
     public static string LastUsedFile { get; } = Path.Combine(EnvyRoot, "last");
+    public static string LockFile { get; } = Path.Combine(EnvyRoot, "lock");
 
     /// <summary>The config root Claude Code uses when CLAUDE_CONFIG_DIR is unset.</summary>
     public static string ClaudeDir { get; } = Path.Combine(Home, ".claude");

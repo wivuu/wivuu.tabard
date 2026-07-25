@@ -17,8 +17,9 @@ under `~/.envy/profiles/<name>`, and switching means setting `CLAUDE_CONFIG_DIR`
   profiles the first time a rotation isn't captured. Pointing at the directory avoids the whole class of bug.
 - **Concurrent sessions work.** Two terminals, two profiles, no clobbering.
 
-There is no index file — profiles are discovered by listing directories, so nothing can drift
-out of sync with what's actually on disk.
+Profiles are discovered by listing directories, so the set of profiles can't drift out of sync
+with what's actually on disk. The only state file is `~/.envy/last`, which records your last
+choice so a bare `claude` can follow it; deleting it is harmless.
 
 ## Behaviour
 
@@ -39,10 +40,14 @@ with no second copy to go stale. `~/.claude.json` gets the same treatment.
   up/down move   enter launch   x x delete   esc quit
 ```
 
-`x` arms the highlighted row, a second `x` deletes it. Any other key disarms.
+`x` arms the highlighted row, a second `x` deletes it. Any other key disarms. If the window is
+too short for every profile the list scrolls and the help line says how many are off-screen; if
+it is too short for a frame at all (under seven rows), envy prints the list and asks you to use
+`envy use <name>` rather than draw something you can't read.
 
 After a launch, `~/.claude` is repointed at whichever profile you chose, so a bare `claude`
-invocation stays consistent with your last choice.
+invocation stays consistent with your last choice. `envy ls` never adopts or repoints anything —
+it is safe to run first just to see what envy would do.
 
 ## Commands
 
@@ -61,7 +66,7 @@ envy -- <claude args>     Force everything through to claude
 
 ```sh
 dotnet build
-dotnet publish src/Envy.Cli -c Release -r linux-x64   # or osx-arm64, win-x64
+dotnet publish -c Release -r linux-x64   # or osx-arm64, win-x64
 ```
 
 `PublishAot` is on, so you get a single native binary with no runtime dependency. Drop it on
@@ -99,9 +104,21 @@ whether `~/.envy/profiles/<name>/.claude.json` appears after login.
   junction (`mklink /J`), which doesn't. Files have no junction equivalent, so `~/.claude.json`
   linking may fail there — envy warns and carries on.
 - Profile directories are `chmod 0700` on Unix.
-- Deleting a profile removes any link pointing at it first, so nothing is deleted *through* a link.
+- Deleting a profile removes the directory first and drops the links only once that has worked, so
+  a delete that fails part-way can't leave you with no `~/.claude` at all. If the profile you
+  deleted was the linked one, `~/.claude` is repointed at a survivor.
+- `~/.claude` and `~/.claude.json` are only ever replaced when they are links into
+  `~/.envy/profiles`. A real directory, or a link aimed anywhere else, is yours — envy leaves it
+  alone and says so.
+- `~/.claude.json` is linked into the chosen profile even before that file exists. The dangling
+  link is deliberate: Claude Code creates the file the first time it writes, and it lands inside
+  the profile rather than being shared.
+- If `~/.claude` holds a `claude migrate-installer` install (a `local/` directory that
+  `~/.local/bin/claude` points into) and the profile you're switching to doesn't, envy leaves the
+  link where it is rather than breaking the `claude` command. The session still gets the right
+  profile through `CLAUDE_CONFIG_DIR`.
 
 ## Status
 
-Written but not compiled — there was no SDK available where this was drafted. Expect to fix a
-few things on first `dotnet build`.
+Builds clean (`dotnet build`, 0 warnings / 0 errors) with `TreatWarningsAsErrors` and nullable
+reference types on, and publishes as a native AOT binary.

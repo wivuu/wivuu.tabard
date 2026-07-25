@@ -4,6 +4,10 @@ namespace Envy.Cli;
 
 internal static class Links
 {
+    private static readonly StringComparison PathComparison = OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+
     /// <summary>
     /// Links <paramref name="linkPath"/> at <paramref name="target"/>. On Windows a real symlink
     /// needs Developer Mode or elevation, so we fall back to a directory junction, which does not.
@@ -48,13 +52,44 @@ internal static class Links
         }
     }
 
-    /// <summary>True if the path exists and is a reparse point / symlink rather than real content.</summary>
-    public static bool IsLink(string path)
+    /// <summary>True if the path is a reparse point / symlink rather than real content.</summary>
+    public static bool IsLink(string path) => RawTarget(path) is not null;
+
+    /// <summary>
+    /// The absolute path a link points at, or null if it is not a link. Does not follow chains and
+    /// does not require the target to exist - a dangling link still has a target.
+    /// </summary>
+    public static string? ResolveTarget(string linkPath)
     {
+        if (RawTarget(linkPath) is not { } target)
+            return null;
+
         try
         {
-            FileSystemInfo info = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
-            return info.Exists && info.LinkTarget is not null;
+            var rooted = Path.IsPathRooted(target)
+                ? target
+                : Path.Combine(Path.GetDirectoryName(linkPath) ?? "", target);
+
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(rooted));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static bool PointsAt(string linkPath, string target)
+    {
+        if (ResolveTarget(linkPath) is not { } resolved)
+            return false;
+
+        try
+        {
+            return string.Equals(
+                resolved,
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(target)),
+                PathComparison
+            );
         }
         catch
         {
@@ -62,19 +97,14 @@ internal static class Links
         }
     }
 
-    public static bool PointsAt(string linkPath, string target)
+    /// <summary>True if <paramref name="path"/> is <paramref name="root"/> or sits under it.</summary>
+    public static bool IsInside(string path, string root)
     {
         try
         {
-            FileSystemInfo info = Directory.Exists(linkPath) ? new DirectoryInfo(linkPath) : new FileInfo(linkPath);
-            if (info.LinkTarget is not { } t)
-                return false;
-
-            var resolved = Path.IsPathRooted(t) ? t : Path.Combine(Path.GetDirectoryName(linkPath) ?? "", t);
-            return string.Equals(
-                Path.TrimEndingDirectorySeparator(Path.GetFullPath(resolved)),
-                Path.TrimEndingDirectorySeparator(Path.GetFullPath(target)),
-                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+            return path.Equals(full, PathComparison)
+                || path.StartsWith(full + Path.DirectorySeparatorChar, PathComparison);
         }
         catch
         {
@@ -99,6 +129,26 @@ internal static class Links
         catch
         {
             // A stuck link is not worth aborting the operation over.
+        }
+    }
+
+    /// <summary>
+    /// The target exactly as recorded on disk, or null if the path is not a link. Deliberately
+    /// avoids FileSystemInfo.Exists: for a dangling link that is platform-dependent, and envy
+    /// creates dangling links on purpose (~/.claude.json before Claude Code has written it).
+    /// </summary>
+    private static string? RawTarget(string path)
+    {
+        try
+        {
+            FileSystemInfo info = Directory.Exists(path)
+                ? new DirectoryInfo(path)
+                : new FileInfo(path);
+            return info.LinkTarget;
+        }
+        catch
+        {
+            return null;
         }
     }
 

@@ -42,7 +42,9 @@ internal static class Cli
         if (profiles.Count == 0)
         {
             var created = ProfileStore.Create(ProfileStore.DefaultProfileName);
-            Console.Error.WriteLine("envy: created profile 'default' - Claude Code will prompt you to log in.");
+            Console.Error.WriteLine(
+                "envy: created profile 'default' - Claude Code will prompt you to log in."
+            );
             return LaunchInto(created, claudeArgs);
         }
 
@@ -62,7 +64,8 @@ internal static class Cli
 
         Adopt();
 
-        var profile = ProfileStore.Find(args[0])
+        var profile =
+            ProfileStore.Find(args[0])
             ?? throw new InvalidOperationException($"no profile named '{args[0]}'. Try 'envy ls'.");
 
         var rest = args[1..];
@@ -80,7 +83,9 @@ internal static class Cli
         Adopt();
 
         var profile = ProfileStore.Create(args[0]);
-        Console.Error.WriteLine($"envy: created '{profile.Name}'. Launching Claude Code to log in.");
+        Console.Error.WriteLine(
+            $"envy: created '{profile.Name}'. Launching Claude Code to log in."
+        );
         return LaunchInto(profile, []);
     }
 
@@ -89,38 +94,55 @@ internal static class Cli
         if (args.Length == 0)
             throw new ArgumentException("usage: envy rm <name>");
 
-        var profile = ProfileStore.Find(args[0])
+        var profile =
+            ProfileStore.Find(args[0])
             ?? throw new InvalidOperationException($"no profile named '{args[0]}'.");
 
         Console.Error.Write($"Delete profile '{profile.Name}' and its saved login? [y/N] ");
         var answer = Console.ReadLine();
         if (!string.Equals(answer?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
         {
+            // Declining is not a failure, and stdin at EOF lands here too.
             Console.Error.WriteLine("envy: cancelled.");
-            return 1;
+            return 0;
         }
 
-        ProfileStore.Delete(profile);
+        var warnings = ProfileStore.Delete(profile);
         Console.Error.WriteLine($"envy: deleted '{profile.Name}'.");
+
+        foreach (var warning in warnings)
+            Console.Error.WriteLine($"envy: {warning}");
+
         return 0;
     }
 
     private static int List()
     {
-        Adopt();
-
+        // No Adopt() here. 'ls' is what a cautious user runs first to see what envy would do,
+        // so it must not be the thing that irreversibly moves ~/.claude.
         var profiles = ProfileStore.List();
         if (profiles.Count == 0)
         {
             Console.WriteLine("No profiles yet. Run 'envy add <name>'.");
-            return 0;
+        }
+        else
+        {
+            var active = ProfileStore.LastUsed();
+            foreach (var profile in profiles)
+            {
+                var marker = string.Equals(profile.Name, active, StringComparison.Ordinal)
+                    ? "*"
+                    : " ";
+                Console.WriteLine($"{marker} {profile.Name, -18}{profile.Describe()}");
+            }
         }
 
-        var active = ProfileStore.LastUsed();
-        foreach (var profile in profiles)
+        if (ProfileStore.WouldAdopt())
         {
-            var marker = string.Equals(profile.Name, active, StringComparison.Ordinal) ? "*" : " ";
-            Console.WriteLine($"{marker} {profile.Name,-18}{profile.Describe()}");
+            Console.Error.WriteLine(
+                "envy: ~/.claude is not managed by envy yet. Running 'envy' or 'envy add <name>' will "
+                    + $"move it to ~/.envy/profiles/{ProfileStore.DefaultProfileName} and link ~/.claude back at it."
+            );
         }
 
         return 0;
@@ -128,12 +150,21 @@ internal static class Cli
 
     private static int LaunchInto(Profile profile, IReadOnlyList<string> claudeArgs)
     {
+        Point(profile);
+        return Launcher.Launch(profile, claudeArgs);
+    }
+
+    /// <summary>Record the choice and repoint ~/.claude under a lock, so two envy runs racing
+    /// cannot leave the link and ~/.envy/last naming different profiles.</summary>
+    private static void Point(Profile profile)
+    {
+        using var guard = ProfileStore.AcquireLock();
+
         ProfileStore.SetLastUsed(profile.Name);
 
         // Keep a bare 'claude' invocation consistent with the last choice made here.
-        ProfileStore.Relink(profile);
-
-        return Launcher.Launch(profile, claudeArgs);
+        foreach (var warning in ProfileStore.Relink(profile))
+            Console.Error.WriteLine($"envy: {warning}");
     }
 
     private static void Adopt()
@@ -143,7 +174,8 @@ internal static class Cli
         if (result.Adopted)
         {
             Console.Error.WriteLine(
-                $"envy: adopted your existing ~/.claude as profile '{ProfileStore.DefaultProfileName}'.");
+                $"envy: adopted your existing ~/.claude as profile '{ProfileStore.DefaultProfileName}'."
+            );
         }
 
         foreach (var warning in result.Warnings)
@@ -172,7 +204,8 @@ internal static class Cli
 
             Profiles live in ~/.envy/profiles/<name> and are passed to Claude Code
             as CLAUDE_CONFIG_DIR, so each one keeps its own login, settings and history.
-            """);
+            """
+        );
 
         return 0;
     }
