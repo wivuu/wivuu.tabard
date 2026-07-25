@@ -18,16 +18,28 @@
 
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+
+    <!-- Embed the symbols rather than shipping a loose .pdb inside the tool package. -->
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <PropertyGroup>
     <PackAsTool>true</PackAsTool>
+    <!-- Installed as Wivuu.Tabard, which the Wivuu.* prefix reservation covers, but invoked
+         as plain `tabard`. ToolCommandName is what lands on PATH; PackageId is only the id. -->
     <ToolCommandName>tabard</ToolCommandName>
-    <PackageId>tabard</PackageId>
+    <PackageId>Wivuu.Tabard</PackageId>
     <Version>0.1.0</Version>
+    <Authors>Wivuu</Authors>
+    <Copyright>Copyright (c) Wivuu</Copyright>
     <Description>A Claude Code profile switcher. Launch `claude` through `tabard` and pick which login to use.</Description>
     <PackageTags>claude;claude-code;cli;profile</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/wivuu/wivuu.tabard</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/wivuu/wivuu.tabard</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <PackageOutputPath>$(MSBuildThisFileDirectory)../../nupkg</PackageOutputPath>
     <RollForward>Major</RollForward>
   </PropertyGroup>
@@ -35,5 +47,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Wivuu.Tabard.CLI.Tests" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

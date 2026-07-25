@@ -64,19 +64,28 @@ tabard -- <claude args>     Force everything through to claude
 
 ## Install
 
-As a global .NET tool, from a checkout:
+As a global .NET tool, from nuget.org:
+
+```sh
+dotnet tool install -g Wivuu.Tabard
+```
+
+The package id is `Wivuu.Tabard` but the command it installs is plain `tabard` — the id has to
+sit under the reserved `Wivuu.*` prefix, the command doesn't.
+
+From a checkout instead:
 
 ```sh
 dotnet pack src/Wivuu.Tabard.CLI -c Release
-dotnet tool install -g --add-source ./nupkg tabard
+dotnet tool install -g --add-source ./nupkg Wivuu.Tabard
 ```
 
 `dotnet tool install` takes a package id, not a directory, so the local package feed
 (`--add-source ./nupkg`) is what makes installing from source work. Later:
 
 ```sh
-dotnet tool update -g --add-source ./nupkg tabard
-dotnet tool uninstall -g tabard
+dotnet tool update -g --add-source ./nupkg Wivuu.Tabard
+dotnet tool uninstall -g Wivuu.Tabard
 ```
 
 This puts `tabard` in `~/.dotnet/tools`, which needs to be on your PATH. The tool package is

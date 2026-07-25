@@ -58,7 +58,7 @@ jobs:
       - run: |
           dotnet test --verbosity normal
 
-  ## Portable IL package for `dotnet tool install -g tabard`
+  ## Portable IL package for `dotnet tool install -g Wivuu.Tabard`
   pack:
     runs-on: ubuntu-latest
     name: Pack Tool Package
@@ -146,7 +146,9 @@ jobs:
       - name: Checksum
         run: |
           cd dist
-          sha256sum tabard* > SHA256SUMS.txt
+          ## Binaries are tabard-<version>-<rid>.*, the package is Wivuu.Tabard.<version>.nupkg.
+          ## Both are listed explicitly so a rename can't silently drop one from the manifest.
+          sha256sum tabard-* Wivuu.Tabard.*.nupkg > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - name: Create release
         run: |
