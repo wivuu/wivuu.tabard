@@ -48,5 +48,6 @@
     <InternalsVisibleTo Include="Wivuu.Tabard.CLI.Tests" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../NOTICE" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

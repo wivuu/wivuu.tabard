@@ -1,0 +1,40 @@
+tabard (Wivuu.Tabard)
+Copyright (c) 2026 Wivuu
+Licensed under the MIT License. See LICENSE.
+
+
+Trademarks
+----------
+
+tabard is an independent, unofficial tool. It is not affiliated with, sponsored
+by, or endorsed by Anthropic PBC.
+
+"Claude", "Claude Code", and "Anthropic" are trademarks of Anthropic PBC. They
+appear in this project's name references, documentation, and interface only to
+describe what tabard is compatible with. No claim is made to those marks, and no
+endorsement by Anthropic is implied.
+
+The MIT License above applies to this project's own source code and
+documentation. It grants no rights in any third-party trademark, service mark,
+trade name, or logo, and nothing in it should be read as permission to use
+Anthropic's marks.
+
+Anthropic's trademark guidelines: https://www.anthropic.com/legal/trademark-guidelines
+
+
+Relationship to Claude Code
+---------------------------
+
+tabard does not bundle, modify, or redistribute Claude Code. It requires Claude
+Code to be installed separately, and works only by setting the documented
+CLAUDE_CONFIG_DIR environment variable and launching the `claude` executable
+already on your PATH.
+
+tabard does not read, store, transmit, or proxy authentication tokens. It reads
+token expiry and subscription type from a profile's credentials file purely to
+label rows in the profile picker; the token values themselves are never accessed.
+
+tabard is intended for one person managing their own accounts — for example a
+personal account and a work account. It is not a means of sharing a subscription,
+pooling accounts, or working around usage limits, all of which violate Anthropic's
+terms of service.
