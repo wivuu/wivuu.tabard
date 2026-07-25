@@ -62,18 +62,44 @@ tabard -- <claude args>     Force everything through to claude
 
 `tabard --help` is tabard's help; `tabard -- --help` reaches Claude Code's.
 
+## Install
+
+As a global .NET tool, from a checkout:
+
+```sh
+dotnet pack src/Tabard.CLI -c Release
+dotnet tool install -g --add-source ./nupkg tabard
+```
+
+`dotnet tool install` takes a package id, not a directory, so the local package feed
+(`--add-source ./nupkg`) is what makes installing from source work. Later:
+
+```sh
+dotnet tool update -g --add-source ./nupkg tabard
+dotnet tool uninstall -g tabard
+```
+
+This puts `tabard` in `~/.dotnet/tools`, which needs to be on your PATH. The tool package is
+portable IL and needs the .NET 10 runtime; `RollForward` is `Major`, so a newer runtime will do.
+
+For no runtime dependency at all, publish the native binary instead and drop it on your PATH:
+
+```sh
+dotnet publish src/Tabard.CLI -c Release -r osx-arm64   # or linux-x64, win-x64
+```
+
+`PublishAot` turns on whenever a RID is given, so this produces a single ~2.4 MB native
+executable. It stays off otherwise, which is what keeps `dotnet pack` producing a portable
+tool package.
+
 ## Build
 
 ```sh
 dotnet build
 dotnet test
-dotnet publish src/Tabard.CLI -c Release -r linux-x64   # or osx-arm64, win-x64
 ```
 
 The CLI lives in `src/Tabard.CLI` and its tests in `tests/Tabard.CLI.Tests`.
-
-`PublishAot` is on, so you get a single native binary with no runtime dependency. Drop it on
-your PATH as `tabard`.
 
 ## Two things to verify on your machines
 
@@ -130,6 +156,5 @@ The [TUnit](https://tunit.dev) suite covers link handling, profile metadata pars
 profile store. It drives the real filesystem against a redirected `HOME` rather than mocking it,
 so adoption, relinking and deletion are exercised as they actually run.
 
-
-## TODO:
-- Dotnet tool install (dotnet tool install -g .)
+Installs as a global .NET tool (`tabard`, verified end to end) and publishes as a native AOT
+binary from the same project.

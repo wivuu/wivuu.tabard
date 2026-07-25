@@ -9,7 +9,9 @@
     <AssemblyName>tabard</AssemblyName>
     <RootNamespace>Tabard.Cli</RootNamespace>
 
-    <PublishAot>true</PublishAot>
+    <!-- AOT is a publish-time concern and needs a RID. Leaving it off otherwise keeps
+         `dotnet pack` producing a portable IL tool package. -->
+    <PublishAot Condition="'$(RuntimeIdentifier)' != ''">true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
     <InvariantGlobalization>true</InvariantGlobalization>
     <StripSymbols>true</StripSymbols>
@@ -18,7 +20,20 @@
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>tabard</ToolCommandName>
+    <PackageId>tabard</PackageId>
+    <Version>0.1.0</Version>
+    <Description>A Claude Code profile switcher. Launch `claude` through `tabard` and pick which login to use.</Description>
+    <PackageTags>claude;claude-code;cli;profile</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)../../nupkg</PackageOutputPath>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Tabard.CLI.Tests" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>
