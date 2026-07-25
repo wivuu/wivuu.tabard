@@ -6,16 +6,19 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
 
-    <AssemblyName>envy</AssemblyName>
-    <RootNamespace>Envy.Cli</RootNamespace>
+    <AssemblyName>tabard</AssemblyName>
+    <RootNamespace>Tabard.Cli</RootNamespace>
 
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
     <InvariantGlobalization>true</InvariantGlobalization>
     <StripSymbols>true</StripSymbols>
-    <SelfContained>true</SelfContained>
 
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tabard.CLI.Tests" />
+  </ItemGroup>
 </Project>

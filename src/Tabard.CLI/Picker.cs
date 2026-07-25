@@ -1,4 +1,4 @@
-namespace Envy.Cli;
+namespace Tabard.Cli;
 
 internal static class Picker
 {
@@ -36,7 +36,7 @@ internal static class Picker
         {
             Finish(top, frameHeight);
             foreach (var note in notes)
-                Console.Error.WriteLine($"envy: {note}");
+                Console.Error.WriteLine($"tabard: {note}");
 
             return chosen;
         }
@@ -100,7 +100,9 @@ internal static class Picker
                             armed = -1;
                             if (profiles.Count == 0)
                             {
-                                notes.Add("no profiles left. Run 'envy add <name>' to create one.");
+                                notes.Add(
+                                    "no profiles left. Run 'tabard add <name>' to create one."
+                                );
                                 return Leave(null);
                             }
 
@@ -291,11 +293,11 @@ internal static class Picker
     /// <summary>Non-interactive fallback for pipes and CI.</summary>
     private static Profile? ShowPlain(List<Profile> profiles)
     {
-        Console.Error.WriteLine("envy: profiles available:");
+        Console.Error.WriteLine("tabard: profiles available:");
         foreach (var profile in profiles)
             Console.Error.WriteLine($"  {profile.Name}  ({profile.Describe()})");
 
-        Console.Error.WriteLine("envy: not a terminal - pick one with 'envy use <name>'.");
+        Console.Error.WriteLine("tabard: not a terminal - pick one with 'tabard use <name>'.");
         return null;
     }
 }

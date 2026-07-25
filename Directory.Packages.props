@@ -3,5 +3,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
-  <ItemGroup />
+  <ItemGroup>
+    <PackageVersion Include="TUnit" Version="1.61.38" />
+  </ItemGroup>
 </Project>

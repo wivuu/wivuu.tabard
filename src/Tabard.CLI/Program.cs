@@ -1,4 +1,4 @@
-using Envy.Cli;
+using Tabard.Cli;
 
 try
 {
@@ -6,7 +6,7 @@ try
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"envy: {ex.Message}");
+    Console.Error.WriteLine($"tabard: {ex.Message}");
     return 1;
 }
 
@@ -17,8 +17,8 @@ internal static class Cli
         if (args.Length == 0)
             return Default([]);
 
-        // '--' forces everything after it through to claude, so 'envy -- --help'
-        // reaches Claude Code's own help rather than envy's.
+        // '--' forces everything after it through to claude, so 'tabard -- --help'
+        // reaches Claude Code's own help rather than tabard's.
         if (args[0] == "--")
             return Default(args[1..]);
 
@@ -43,7 +43,7 @@ internal static class Cli
         {
             var created = ProfileStore.Create(ProfileStore.DefaultProfileName);
             Console.Error.WriteLine(
-                "envy: created profile 'default' - Claude Code will prompt you to log in."
+                "tabard: created profile 'default' - Claude Code will prompt you to log in."
             );
             return LaunchInto(created, claudeArgs);
         }
@@ -60,13 +60,15 @@ internal static class Cli
     private static int Use(string[] args)
     {
         if (args.Length == 0)
-            throw new ArgumentException("usage: envy use <name> [-- claude args]");
+            throw new ArgumentException("usage: tabard use <name> [-- claude args]");
 
         Adopt();
 
         var profile =
             ProfileStore.Find(args[0])
-            ?? throw new InvalidOperationException($"no profile named '{args[0]}'. Try 'envy ls'.");
+            ?? throw new InvalidOperationException(
+                $"no profile named '{args[0]}'. Try 'tabard ls'."
+            );
 
         var rest = args[1..];
         if (rest.Length > 0 && rest[0] == "--")
@@ -78,13 +80,13 @@ internal static class Cli
     private static int Add(string[] args)
     {
         if (args.Length == 0)
-            throw new ArgumentException("usage: envy add <name>");
+            throw new ArgumentException("usage: tabard add <name>");
 
         Adopt();
 
         var profile = ProfileStore.Create(args[0]);
         Console.Error.WriteLine(
-            $"envy: created '{profile.Name}'. Launching Claude Code to log in."
+            $"tabard: created '{profile.Name}'. Launching Claude Code to log in."
         );
         return LaunchInto(profile, []);
     }
@@ -92,7 +94,7 @@ internal static class Cli
     private static int Remove(string[] args)
     {
         if (args.Length == 0)
-            throw new ArgumentException("usage: envy rm <name>");
+            throw new ArgumentException("usage: tabard rm <name>");
 
         var profile =
             ProfileStore.Find(args[0])
@@ -103,27 +105,27 @@ internal static class Cli
         if (!string.Equals(answer?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
         {
             // Declining is not a failure, and stdin at EOF lands here too.
-            Console.Error.WriteLine("envy: cancelled.");
+            Console.Error.WriteLine("tabard: cancelled.");
             return 0;
         }
 
         var warnings = ProfileStore.Delete(profile);
-        Console.Error.WriteLine($"envy: deleted '{profile.Name}'.");
+        Console.Error.WriteLine($"tabard: deleted '{profile.Name}'.");
 
         foreach (var warning in warnings)
-            Console.Error.WriteLine($"envy: {warning}");
+            Console.Error.WriteLine($"tabard: {warning}");
 
         return 0;
     }
 
     private static int List()
     {
-        // No Adopt() here. 'ls' is what a cautious user runs first to see what envy would do,
+        // No Adopt() here. 'ls' is what a cautious user runs first to see what tabard would do,
         // so it must not be the thing that irreversibly moves ~/.claude.
         var profiles = ProfileStore.List();
         if (profiles.Count == 0)
         {
-            Console.WriteLine("No profiles yet. Run 'envy add <name>'.");
+            Console.WriteLine("No profiles yet. Run 'tabard add <name>'.");
         }
         else
         {
@@ -140,8 +142,8 @@ internal static class Cli
         if (ProfileStore.WouldAdopt())
         {
             Console.Error.WriteLine(
-                "envy: ~/.claude is not managed by envy yet. Running 'envy' or 'envy add <name>' will "
-                    + $"move it to ~/.envy/profiles/{ProfileStore.DefaultProfileName} and link ~/.claude back at it."
+                "tabard: ~/.claude is not managed by tabard yet. Running 'tabard' or 'tabard add <name>' will "
+                    + $"move it to ~/.tabard/profiles/{ProfileStore.DefaultProfileName} and link ~/.claude back at it."
             );
         }
 
@@ -154,8 +156,8 @@ internal static class Cli
         return Launcher.Launch(profile, claudeArgs);
     }
 
-    /// <summary>Record the choice and repoint ~/.claude under a lock, so two envy runs racing
-    /// cannot leave the link and ~/.envy/last naming different profiles.</summary>
+    /// <summary>Record the choice and repoint ~/.claude under a lock, so two tabard runs racing
+    /// cannot leave the link and ~/.tabard/last naming different profiles.</summary>
     private static void Point(Profile profile)
     {
         using var guard = ProfileStore.AcquireLock();
@@ -164,7 +166,7 @@ internal static class Cli
 
         // Keep a bare 'claude' invocation consistent with the last choice made here.
         foreach (var warning in ProfileStore.Relink(profile))
-            Console.Error.WriteLine($"envy: {warning}");
+            Console.Error.WriteLine($"tabard: {warning}");
     }
 
     private static void Adopt()
@@ -174,27 +176,27 @@ internal static class Cli
         if (result.Adopted)
         {
             Console.Error.WriteLine(
-                $"envy: adopted your existing ~/.claude as profile '{ProfileStore.DefaultProfileName}'."
+                $"tabard: adopted your existing ~/.claude as profile '{ProfileStore.DefaultProfileName}'."
             );
         }
 
         foreach (var warning in result.Warnings)
-            Console.Error.WriteLine($"envy: {warning}");
+            Console.Error.WriteLine($"tabard: {warning}");
     }
 
     private static int Help()
     {
         Console.WriteLine(
             """
-            envy - Claude Code profile switcher
+            tabard - Claude Code profile switcher
 
             Usage:
-              envy [claude args...]     Pick a profile (or skip the picker if there is only one), then launch
-              envy use <name> [-- ...]  Launch a specific profile
-              envy add <name>           Create a profile and log in
-              envy rm <name>            Delete a profile
-              envy ls                   List profiles
-              envy -- <claude args>     Force everything through to claude
+              tabard [claude args...]     Pick a profile (or skip the picker if there is only one), then launch
+              tabard use <name> [-- ...]  Launch a specific profile
+              tabard add <name>           Create a profile and log in
+              tabard rm <name>            Delete a profile
+              tabard ls                   List profiles
+              tabard -- <claude args>     Force everything through to claude
 
             Picker keys:
               up/down or j/k   move
@@ -202,7 +204,7 @@ internal static class Cli
               x then x         delete the highlighted profile
               esc or q         quit
 
-            Profiles live in ~/.envy/profiles/<name> and are passed to Claude Code
+            Profiles live in ~/.tabard/profiles/<name> and are passed to Claude Code
             as CLAUDE_CONFIG_DIR, so each one keeps its own login, settings and history.
             """
         );

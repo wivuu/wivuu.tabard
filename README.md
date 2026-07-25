@@ -1,6 +1,6 @@
-# envy
+# tabard
 
-A Claude Code profile switcher. Launch `claude` through `envy` and pick which login to use.
+A Claude Code profile switcher. Launch `claude` through `tabard` and pick which login to use.
 
 ## How it works
 
@@ -8,8 +8,8 @@ Claude Code reads its whole config root from one directory (`~/.claude` by defau
 `CLAUDE_CONFIG_DIR` environment variable redirects all of it — settings, `.credentials.json`,
 `CLAUDE.md`, project configs, history.
 
-So envy does **not** copy credentials in and out of `~/.claude`. Each profile is just a directory
-under `~/.envy/profiles/<name>`, and switching means setting `CLAUDE_CONFIG_DIR` and exec'ing
+So tabard does **not** copy credentials in and out of `~/.claude`. Each profile is just a directory
+under `~/.tabard/profiles/<name>`, and switching means setting `CLAUDE_CONFIG_DIR` and exec'ing
 `claude`. Two consequences worth understanding:
 
 - **No sync-back problem.** Claude Code rotates refresh tokens in place. A design that copies
@@ -18,12 +18,12 @@ under `~/.envy/profiles/<name>`, and switching means setting `CLAUDE_CONFIG_DIR`
 - **Concurrent sessions work.** Two terminals, two profiles, no clobbering.
 
 Profiles are discovered by listing directories, so the set of profiles can't drift out of sync
-with what's actually on disk. The only state file is `~/.envy/last`, which records your last
+with what's actually on disk. The only state file is `~/.tabard/last`, which records your last
 choice so a bare `claude` can follow it; deleting it is harmless.
 
 ## Behaviour
 
-**First run** adopts your existing login: `~/.claude` is *moved* to `~/.envy/profiles/default`
+**First run** adopts your existing login: `~/.claude` is *moved* to `~/.tabard/profiles/default`
 and `~/.claude` is linked back at it. Moving rather than copying keeps tokens and expiry intact
 with no second copy to go stale. `~/.claude.json` gets the same treatment.
 
@@ -42,35 +42,38 @@ with no second copy to go stale. `~/.claude.json` gets the same treatment.
 
 `x` arms the highlighted row, a second `x` deletes it. Any other key disarms. If the window is
 too short for every profile the list scrolls and the help line says how many are off-screen; if
-it is too short for a frame at all (under seven rows), envy prints the list and asks you to use
-`envy use <name>` rather than draw something you can't read.
+it is too short for a frame at all (under seven rows), tabard prints the list and asks you to use
+`tabard use <name>` rather than draw something you can't read.
 
 After a launch, `~/.claude` is repointed at whichever profile you chose, so a bare `claude`
-invocation stays consistent with your last choice. `envy ls` never adopts or repoints anything —
-it is safe to run first just to see what envy would do.
+invocation stays consistent with your last choice. `tabard ls` never adopts or repoints anything —
+it is safe to run first just to see what tabard would do.
 
 ## Commands
 
 ```
-envy [claude args...]     Pick a profile, then launch
-envy use <name> [-- ...]  Launch a specific profile
-envy add <name>           Create a profile and log in
-envy rm <name>            Delete a profile
-envy ls                   List profiles
-envy -- <claude args>     Force everything through to claude
+tabard [claude args...]     Pick a profile, then launch
+tabard use <name> [-- ...]  Launch a specific profile
+tabard add <name>           Create a profile and log in
+tabard rm <name>            Delete a profile
+tabard ls                   List profiles
+tabard -- <claude args>     Force everything through to claude
 ```
 
-`envy --help` is envy's help; `envy -- --help` reaches Claude Code's.
+`tabard --help` is tabard's help; `tabard -- --help` reaches Claude Code's.
 
 ## Build
 
 ```sh
 dotnet build
-dotnet publish -c Release -r linux-x64   # or osx-arm64, win-x64
+dotnet test
+dotnet publish src/Tabard.CLI -c Release -r linux-x64   # or osx-arm64, win-x64
 ```
 
+The CLI lives in `src/Tabard.CLI` and its tests in `tests/Tabard.CLI.Tests`.
+
 `PublishAot` is on, so you get a single native binary with no runtime dependency. Drop it on
-your PATH as `envy`.
+your PATH as `tabard`.
 
 ## Two things to verify on your machines
 
@@ -81,9 +84,9 @@ than a `.credentials.json` file — that's only Linux and Windows. So `CLAUDE_CO
 isolate *logins* on macOS even though it isolates everything else. Test:
 
 ```sh
-envy add test      # log in with a second account
-envy ls            # does 'test' show a token, or "no token file"?
-envy use default   # is the original account still logged in?
+tabard add test      # log in with a second account
+tabard ls            # does 'test' show a token, or "no token file"?
+tabard use default   # is the original account still logged in?
 ```
 
 If macOS turns out to share one Keychain entry across profiles, the fallback is to save and
@@ -91,30 +94,30 @@ restore the Keychain item per profile via the `security` CLI on switch — which
 sync-back problem, so it needs a write-back on exit. Worth knowing before you rely on it.
 
 **2. `~/.claude.json` location.** This file sits beside the config dir rather than inside it in
-at least some versions. envy links `~/.claude.json` at the default profile's copy, which is
+at least some versions. tabard links `~/.claude.json` at the default profile's copy, which is
 correct if Claude Code honours `CLAUDE_CONFIG_DIR` for it — and wrong if it doesn't, in which
 case every profile shares the default's file. Test by creating a second profile and checking
-whether `~/.envy/profiles/<name>/.claude.json` appears after login.
+whether `~/.tabard/profiles/<name>/.claude.json` appears after login.
 
 ## Notes
 
 - `CLAUDE_CONFIG_DIR` is always passed fully expanded. A `~` left in that value has been written
   literally by some versions, stranding credentials in a `~` folder under the working directory.
-- On Windows, real symlinks need Developer Mode or elevation, so envy falls back to a directory
+- On Windows, real symlinks need Developer Mode or elevation, so tabard falls back to a directory
   junction (`mklink /J`), which doesn't. Files have no junction equivalent, so `~/.claude.json`
-  linking may fail there — envy warns and carries on.
+  linking may fail there — tabard warns and carries on.
 - Profile directories are `chmod 0700` on Unix.
 - Deleting a profile removes the directory first and drops the links only once that has worked, so
   a delete that fails part-way can't leave you with no `~/.claude` at all. If the profile you
   deleted was the linked one, `~/.claude` is repointed at a survivor.
 - `~/.claude` and `~/.claude.json` are only ever replaced when they are links into
-  `~/.envy/profiles`. A real directory, or a link aimed anywhere else, is yours — envy leaves it
+  `~/.tabard/profiles`. A real directory, or a link aimed anywhere else, is yours — tabard leaves it
   alone and says so.
 - `~/.claude.json` is linked into the chosen profile even before that file exists. The dangling
   link is deliberate: Claude Code creates the file the first time it writes, and it lands inside
   the profile rather than being shared.
 - If `~/.claude` holds a `claude migrate-installer` install (a `local/` directory that
-  `~/.local/bin/claude` points into) and the profile you're switching to doesn't, envy leaves the
+  `~/.local/bin/claude` points into) and the profile you're switching to doesn't, tabard leaves the
   link where it is rather than breaking the `claude` command. The session still gets the right
   profile through `CLAUDE_CONFIG_DIR`.
 
@@ -122,3 +125,11 @@ whether `~/.envy/profiles/<name>/.claude.json` appears after login.
 
 Builds clean (`dotnet build`, 0 warnings / 0 errors) with `TreatWarningsAsErrors` and nullable
 reference types on, and publishes as a native AOT binary.
+
+The [TUnit](https://tunit.dev) suite covers link handling, profile metadata parsing and the
+profile store. It drives the real filesystem against a redirected `HOME` rather than mocking it,
+so adoption, relinking and deletion are exercised as they actually run.
+
+
+## TODO:
+- Dotnet tool install (dotnet tool install -g .)

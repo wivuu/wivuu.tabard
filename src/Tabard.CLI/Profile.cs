@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Envy.Cli;
+namespace Tabard.Cli;
 
 internal sealed class Profile
 {

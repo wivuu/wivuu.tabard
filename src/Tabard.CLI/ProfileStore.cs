@@ -1,4 +1,4 @@
-namespace Envy.Cli;
+namespace Tabard.Cli;
 
 internal sealed record MigrationResult(bool Adopted, IReadOnlyList<string> Warnings)
 {
@@ -79,7 +79,7 @@ internal static class ProfileStore
     }
 
     /// <summary>
-    /// Exact match only. Matching case-insensitively here would let 'envy rm Work' delete 'work'
+    /// Exact match only. Matching case-insensitively here would let 'tabard rm Work' delete 'work'
     /// on a case-sensitive filesystem; Create() is what keeps the two from coexisting.
     /// </summary>
     public static Profile? Find(string name) =>
@@ -103,7 +103,7 @@ internal static class ProfileStore
 
     public static void SetLastUsed(string name)
     {
-        Directory.CreateDirectory(Paths.EnvyRoot);
+        Directory.CreateDirectory(Paths.TabardRoot);
 
         // Temp file plus rename: a half-written 'last' would point a bare 'claude' at nothing.
         var temp = $"{Paths.LastUsedFile}.{Environment.ProcessId}.tmp";
@@ -112,15 +112,15 @@ internal static class ProfileStore
     }
 
     /// <summary>
-    /// Serialises the 'record last used, then relink' pair against other envy processes, which
-    /// would otherwise interleave and leave ~/.claude and ~/.envy/last naming different profiles.
+    /// Serialises the 'record last used, then relink' pair against other tabard processes, which
+    /// would otherwise interleave and leave ~/.claude and ~/.tabard/last naming different profiles.
     /// Best effort - a stuck lock must not stop someone launching Claude Code.
     /// </summary>
     public static IDisposable? AcquireLock()
     {
         try
         {
-            Directory.CreateDirectory(Paths.EnvyRoot);
+            Directory.CreateDirectory(Paths.TabardRoot);
         }
         catch
         {
@@ -221,7 +221,7 @@ internal static class ProfileStore
 
     /// <summary>
     /// Points ~/.claude and ~/.claude.json at the given profile, creating the links if they are
-    /// absent. Anything envy did not put there - a real file or directory, or a link aimed outside
+    /// absent. Anything tabard did not put there - a real file or directory, or a link aimed outside
     /// the profile store - belongs to the user and is left alone. Returns what could not be done.
     /// </summary>
     public static IReadOnlyList<string> Relink(Profile profile)
@@ -255,14 +255,14 @@ internal static class ProfileStore
 
             case Owner.Foreign:
                 warnings.Add(
-                    "~/.claude is a link pointing outside ~/.envy/profiles, so envy left it alone. "
+                    "~/.claude is a link pointing outside ~/.tabard/profiles, so tabard left it alone. "
                         + "A bare 'claude' will not follow your profile choice."
                 );
                 break;
 
             case Owner.Occupied:
                 warnings.Add(
-                    "~/.claude is real content envy did not create, so it was left alone. "
+                    "~/.claude is real content tabard did not create, so it was left alone. "
                         + "A bare 'claude' will not follow your profile choice."
                 );
                 break;
@@ -284,13 +284,13 @@ internal static class ProfileStore
 
             case Owner.Foreign:
                 warnings.Add(
-                    "~/.claude.json is a link pointing outside ~/.envy/profiles, so envy left it alone."
+                    "~/.claude.json is a link pointing outside ~/.tabard/profiles, so tabard left it alone."
                 );
                 break;
 
             case Owner.Occupied:
                 warnings.Add(
-                    "~/.claude.json is a real file envy did not create, so it was left alone. "
+                    "~/.claude.json is a real file tabard did not create, so it was left alone. "
                         + $"Move it to {json} if you want this profile to own it."
                 );
                 break;
@@ -299,7 +299,7 @@ internal static class ProfileStore
         return warnings;
     }
 
-    /// <summary>True if a first run would adopt ~/.claude. Reads only, so 'envy ls' can say so
+    /// <summary>True if a first run would adopt ~/.claude. Reads only, so 'tabard ls' can say so
     /// without performing the move.</summary>
     public static bool WouldAdopt() =>
         !AnyProfiles() && Directory.Exists(Paths.ClaudeDir) && !Links.IsLink(Paths.ClaudeDir);
@@ -312,7 +312,7 @@ internal static class ProfileStore
     public static MigrationResult AdoptExistingIfNeeded()
     {
         Directory.CreateDirectory(Paths.ProfilesRoot);
-        Harden(Paths.EnvyRoot);
+        Harden(Paths.TabardRoot);
 
         // Nothing to adopt: fresh install, or already linked by a previous run.
         if (!WouldAdopt())
@@ -439,7 +439,7 @@ internal static class ProfileStore
             return;
 
         warnings.Add(
-            $"could not link {label} at {target} ({error}). envy itself still works - only a bare "
+            $"could not link {label} at {target} ({error}). tabard itself still works - only a bare "
                 + "'claude' is affected. On Windows, enable Developer Mode to allow links."
         );
     }
@@ -447,7 +447,7 @@ internal static class ProfileStore
     /// <summary>
     /// 'claude migrate-installer' puts the binary in ~/.claude/local and points ~/.local/bin/claude
     /// at it, so repointing ~/.claude at a profile without one breaks the claude command machine-wide
-    /// - including envy's own launch. Refusing costs only the bare-'claude' convenience, because this
+    /// - including tabard's own launch. Refusing costs only the bare-'claude' convenience, because this
     /// session still gets the profile through CLAUDE_CONFIG_DIR.
     /// </summary>
     private static bool WouldOrphanLocalInstall(Profile profile, List<string> warnings)
@@ -519,7 +519,7 @@ internal static class ProfileStore
 
         // Stage into a sibling of the profiles root: a copy that dies part-way must not leave a
         // half-populated profiles/default behind, because that looks adopted and is never retried.
-        var staging = Path.Combine(Paths.EnvyRoot, $".incoming-{Guid.NewGuid():N}");
+        var staging = Path.Combine(Paths.TabardRoot, $".incoming-{Guid.NewGuid():N}");
         try
         {
             CopyDirectory(source, staging);

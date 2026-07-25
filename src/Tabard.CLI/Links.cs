@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Envy.Cli;
+namespace Tabard.Cli;
 
 internal static class Links
 {
@@ -134,7 +134,7 @@ internal static class Links
 
     /// <summary>
     /// The target exactly as recorded on disk, or null if the path is not a link. Deliberately
-    /// avoids FileSystemInfo.Exists: for a dangling link that is platform-dependent, and envy
+    /// avoids FileSystemInfo.Exists: for a dangling link that is platform-dependent, and tabard
     /// creates dangling links on purpose (~/.claude.json before Claude Code has written it).
     /// </summary>
     private static string? RawTarget(string path)

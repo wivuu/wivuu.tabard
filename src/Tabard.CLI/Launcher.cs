@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Envy.Cli;
+namespace Tabard.Cli;
 
 internal static class Launcher
 {
@@ -18,8 +18,8 @@ internal static class Launcher
         // literally by some Claude Code versions, stranding credentials under the CWD.
         psi.Environment["CLAUDE_CONFIG_DIR"] = Path.GetFullPath(profile.Dir);
 
-        // Ctrl+C belongs to the child; envy just waits for it to finish. Registered before the
-        // start so there is no window where an early ^C kills envy out from under the child.
+        // Ctrl+C belongs to the child; tabard just waits for it to finish. Registered before the
+        // start so there is no window where an early ^C kills tabard out from under the child.
         Console.CancelKeyPress += (_, e) => e.Cancel = true;
 
         using var proc =
