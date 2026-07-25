@@ -2,8 +2,15 @@ namespace Wivuu.Tabard.Cli;
 
 internal static class Paths
 {
+    /// <summary>
+    /// Resolved from the environment first. On Windows <see cref="Environment.GetFolderPath"/> asks
+    /// the known-folder API, which answers from the process token and ignores USERPROFILE - so the
+    /// tests' sandboxed home would be silently bypassed there while working everywhere else.
+    /// </summary>
     public static string Home { get; } =
-        Environment.GetFolderPath(
+        Environment.GetEnvironmentVariable("USERPROFILE")
+        ?? Environment.GetEnvironmentVariable("HOME")
+        ?? Environment.GetFolderPath(
             Environment.SpecialFolder.UserProfile,
             Environment.SpecialFolderOption.DoNotVerify
         );
