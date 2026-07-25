@@ -53,6 +53,29 @@ until the policy is updated to match.
 
 [tp]: https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing
 
+## Homebrew
+
+The tap serves the native AOT binaries the release job already publishes, so it builds nothing of
+its own. This repo is its own tap — `Formula/tabard.rb` at the root is all a tap needs, so there is
+no second repository to keep in step:
+
+```sh
+brew tap wivuu/tabard https://github.com/wivuu/wivuu.tabard
+brew install tabard
+```
+
+The `packaging` job in `release.yml` rewrites the version and the four `sha256` lines on every
+non-prerelease tag and commits the result to `master`. Each `sha256` line carries a trailing RID
+comment (`# osx-arm64`) that the job keys off, and it reads every hash back after writing — a hash
+that failed to update would serve the previous release under the new version number. Prereleases
+are skipped, so `v0.2.0-rc.1` never reaches brew users.
+
+To check the formula before tagging:
+
+```sh
+brew style Formula/tabard.rb
+```
+
 ## Two things to verify on your machines
 
 Both of these are assumptions the design rests on, and both are cheap to test.

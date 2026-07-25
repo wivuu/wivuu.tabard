@@ -191,3 +191,56 @@ jobs:
             --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
+
+  ## The Homebrew formula points at assets the release job has already published, so this runs
+  ## after it and commits the bumped formula back to master. Prereleases are skipped on purpose -
+  ## brew users should only ever be offered a stable version.
+  packaging:
+    runs-on: ubuntu-latest
+    name: Update Formula
+    needs: [version, release]
+    if: needs.version.outputs.prerelease == 'false'
+    permissions:
+      contents: write # commits the bumped formula back to master
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      ## The tag ref is detached; the bump has to land on the branch, not on the tag.
+      - uses: actions/checkout@v6
+        with:
+          ref: master
+
+      ## Reuse the manifest the release job signed off on rather than re-hashing downloads.
+      - name: Fetch checksums
+        run: gh release download "v$VERSION" --pattern SHA256SUMS.txt --output sums.txt
+
+      - name: Bump Homebrew formula
+        run: |
+          old=$(sed -n 's/^  version "\(.*\)"$/\1/p' Formula/tabard.rb)
+          ## Version appears in the version line and inside every download URL.
+          sed -i "s/${old//./\\.}/$VERSION/g" Formula/tabard.rb
+
+          ## Each sha256 line is tagged with its RID so the right hash lands on the right line,
+          ## and every one is read back: a stale hash would serve the previous release under
+          ## the new version number.
+          for rid in osx-arm64 osx-x64 linux-arm64 linux-x64; do
+            sum=$(awk -v f="tabard-$VERSION-$rid.tar.gz" '$2 == f { print $1 }' sums.txt)
+            [ -n "$sum" ] || { echo "::error::no checksum for $rid in SHA256SUMS.txt"; exit 1; }
+            sed -i -E "s|^([[:space:]]*sha256 \")[0-9a-f]{64}(\" # $rid\$)|\1$sum\2|" Formula/tabard.rb
+            grep -q "sha256 \"$sum\" # $rid\$" Formula/tabard.rb ||
+              { echo "::error::formula sha256 for $rid did not update"; exit 1; }
+          done
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula
+          ## A re-run of an already-packaged version has nothing to commit, which is fine.
+          if git diff --cached --quiet; then
+            echo "formula already at $VERSION"
+          else
+            git commit -m "chore: point homebrew formula at v$VERSION"
+            git push origin HEAD:master
+          fi

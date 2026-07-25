@@ -7,13 +7,23 @@ A Claude Code profile switcher. Launch `claude` through `tabard` and pick which 
 
 ## Install
 
+**macOS / Linux** — Homebrew, from this repo's own tap:
+
+```sh
+brew tap wivuu/tabard https://github.com/wivuu/wivuu.tabard
+brew install tabard
+```
+
+**Anywhere with .NET** — as a global .NET tool:
+
 ```sh
 dotnet tool install -g Wivuu.Tabard
 ```
 
-The package id is `Wivuu.Tabard`; the command it installs is plain `tabard`. It lands in
-`~/.dotnet/tools`, which needs to be on your PATH, and needs the .NET 10 runtime (or newer).
-No runtime, or building from a checkout? See [other ways to install](#other-ways-to-install).
+Homebrew installs the native binary, so it needs no .NET runtime. The .NET tool is portable IL: it
+needs the .NET 10 runtime (or newer) and lands in `~/.dotnet/tools`, which has to be on your PATH.
+The package id is `Wivuu.Tabard` either way; the command is always plain `tabard`. For a raw binary
+or a build from source, see [other ways to install](#other-ways-to-install).
 
 ## Usage
 
@@ -160,13 +170,21 @@ built-in list is shown instead and any slug can still be set with a flag.
 
 ## Other ways to install
 
-The package id has to sit under the reserved `Wivuu.*` prefix; the command doesn't, which is why
-`dotnet tool install -g Wivuu.Tabard` gives you a plain `tabard`.
+The NuGet package id has to sit under the reserved `Wivuu.*` prefix; the command doesn't, which is
+why `dotnet tool install -g Wivuu.Tabard` gives you a plain `tabard`.
 
-For no .NET runtime dependency at all, grab a native binary for your platform from the
-[latest release](https://github.com/wivuu/wivuu.tabard/releases/latest) — `linux-x64`,
+To upgrade or remove what you installed above:
+
+```sh
+brew upgrade tabard  ;  brew uninstall tabard
+dotnet tool update -g Wivuu.Tabard
+dotnet tool uninstall -g Wivuu.Tabard
+```
+
+For no runtime dependency and no package manager, grab a native binary for your platform from
+the [latest release](https://github.com/wivuu/wivuu.tabard/releases/latest) — `linux-x64`,
 `linux-arm64`, `osx-arm64`, `osx-x64` and `win-x64` are published with a `SHA256SUMS.txt` — and
-drop it on your PATH.
+drop it on your PATH. This is the same binary Homebrew installs.
 
 From a checkout instead:
 
@@ -176,15 +194,9 @@ dotnet tool install -g --add-source ./nupkg Wivuu.Tabard
 ```
 
 `dotnet tool install` takes a package id, not a directory, so the local package feed
-(`--add-source ./nupkg`) is what makes installing from source work. Later:
-
-```sh
-dotnet tool update -g --add-source ./nupkg Wivuu.Tabard
-dotnet tool uninstall -g Wivuu.Tabard
-```
-
-This puts `tabard` in `~/.dotnet/tools`, which needs to be on your PATH. The tool package is
-portable IL and needs the .NET 10 runtime; `RollForward` is `Major`, so a newer runtime will do.
+(`--add-source ./nupkg`) is what makes installing from source work — and `dotnet tool update` needs
+the same `--add-source` to find it again. `RollForward` is `Major`, so any runtime from .NET 10 up
+will run it.
 
 Or build the native binary yourself and drop it on your PATH:
 
