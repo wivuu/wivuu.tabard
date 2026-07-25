@@ -76,6 +76,31 @@ To check the formula before tagging:
 brew style Formula/tabard.rb
 ```
 
+## winget
+
+`manifests/w/Wivuu/Tabard/<version>/` holds the three manifests, laid out the way
+`microsoft/winget-pkgs` wants them. The package is a zip with a nested portable exe, which is why
+the installer manifest declares `NestedInstallerType: portable` and a `PortableCommandAlias` of
+`tabard`. Like the formula, it points at binaries the release already published rather than
+building anything.
+
+The first submission has to be done by hand, because `wingetcreate update` edits a manifest that is
+already published:
+
+```sh
+wingetcreate submit --token <pat> manifests/w/Wivuu/Tabard/0.1.1
+```
+
+Once that PR merges into `winget-pkgs`, set up the automation:
+
+- A `WINGET_TOKEN` repository *secret* — a classic PAT with `public_repo`, on an account that has
+  forked `microsoft/winget-pkgs`. It opens the PR.
+- A `WINGET_PUBLISH` repository *variable* set to `true`. The `winget` job is gated on it, so
+  releases don't fail on submissions that can't succeed yet.
+
+The `packaging` job keeps the in-repo manifests current on each release regardless; the `winget`
+job is what actually opens the PR.
+
 ## Two things to verify on your machines
 
 Both of these are assumptions the design rests on, and both are cheap to test.

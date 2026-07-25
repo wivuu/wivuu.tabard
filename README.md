@@ -14,16 +14,22 @@ brew tap wivuu/tabard https://github.com/wivuu/wivuu.tabard
 brew install tabard
 ```
 
+**Windows** — winget:
+
+```sh
+winget install Wivuu.Tabard
+```
+
 **Anywhere with .NET** — as a global .NET tool:
 
 ```sh
 dotnet tool install -g Wivuu.Tabard
 ```
 
-Homebrew installs the native binary, so it needs no .NET runtime. The .NET tool is portable IL: it
-needs the .NET 10 runtime (or newer) and lands in `~/.dotnet/tools`, which has to be on your PATH.
-The package id is `Wivuu.Tabard` either way; the command is always plain `tabard`. For a raw binary
-or a build from source, see [other ways to install](#other-ways-to-install).
+Homebrew and winget both install the native binary, so they need no .NET runtime. The .NET tool is
+portable IL: it needs the .NET 10 runtime (or newer) and lands in `~/.dotnet/tools`, which has to be
+on your PATH. The package id is `Wivuu.Tabard` either way; the command is always plain `tabard`.
+For a raw binary or a build from source, see [other ways to install](#other-ways-to-install).
 
 ## Usage
 
@@ -176,7 +182,8 @@ why `dotnet tool install -g Wivuu.Tabard` gives you a plain `tabard`.
 To upgrade or remove what you installed above:
 
 ```sh
-brew upgrade tabard  ;  brew uninstall tabard
+brew upgrade tabard          ;  brew uninstall tabard
+winget upgrade Wivuu.Tabard  ;  winget uninstall Wivuu.Tabard
 dotnet tool update -g Wivuu.Tabard
 dotnet tool uninstall -g Wivuu.Tabard
 ```
@@ -184,7 +191,7 @@ dotnet tool uninstall -g Wivuu.Tabard
 For no runtime dependency and no package manager, grab a native binary for your platform from
 the [latest release](https://github.com/wivuu/wivuu.tabard/releases/latest) — `linux-x64`,
 `linux-arm64`, `osx-arm64`, `osx-x64` and `win-x64` are published with a `SHA256SUMS.txt` — and
-drop it on your PATH. This is the same binary Homebrew installs.
+drop it on your PATH. This is the same binary Homebrew and winget install.
 
 From a checkout instead:
 
