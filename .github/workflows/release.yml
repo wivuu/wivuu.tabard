@@ -9,9 +9,6 @@ on:
         description: "Version to release, without the leading v (e.g. 0.1.0)"
         required: true
 
-permissions:
-  contents: write
-
 jobs:
   ## A tag push carries the version; a manual run is told it. Everything downstream reads it here.
   version:
@@ -20,6 +17,7 @@ jobs:
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
+    permissions: {} # reads the ref name, touches nothing
     steps:
       - id: resolve
         run: |
@@ -44,6 +42,8 @@ jobs:
       fail-fast: true
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
@@ -63,6 +63,8 @@ jobs:
     runs-on: ubuntu-latest
     name: Pack Tool Package
     needs: [version, test]
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
@@ -90,6 +92,8 @@ jobs:
           - { rid: osx-arm64, os: macos-latest }
           - { rid: osx-x64, os: macos-latest }
           - { rid: win-x64, os: windows-latest }
+    permissions:
+      contents: read
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -127,6 +131,8 @@ jobs:
     runs-on: ubuntu-latest
     name: Publish GitHub Release
     needs: [version, pack, binaries]
+    permissions:
+      contents: write # gh release create
     env:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
@@ -148,11 +154,20 @@ jobs:
           if [ "${{ needs.version.outputs.prerelease }}" = "true" ]; then flags+=(--prerelease); fi
           gh release create "v$VERSION" dist/* "${flags[@]}"
 
-  ## Push to nuget.org when a NUGET_API_KEY secret exists; a no-op otherwise
+  ## Push to nuget.org via trusted publishing. No long-lived key: the job trades a GitHub
+  ## OIDC token for an API key that nuget.org only honours for an hour, so the login step
+  ## has to sit immediately before the push.
+  ##
+  ## The matching policy on nuget.org is keyed on owner `wivuu`, repo `wivuu.tabard` and
+  ## workflow file `release.yml` - renaming this file breaks publishing until the policy
+  ## is updated to match.
   nuget:
     runs-on: ubuntu-latest
     name: Push to NuGet
     needs: [version, pack, release]
+    permissions:
+      id-token: write # let this job mint an OIDC token for nuget.org
+      contents: read
     steps:
       - uses: actions/setup-dotnet@v5
         with:
@@ -161,14 +176,15 @@ jobs:
         with:
           name: nupkg
           path: nupkg
+      - name: NuGet login
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ vars.NUGET_USER }} # nuget.org profile name, not an email address
       - name: Push
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
-          if [ -z "$NUGET_API_KEY" ]; then
-            echo "NUGET_API_KEY is not set - skipping nuget.org push."
-            exit 0
-          fi
           dotnet nuget push nupkg/*.nupkg \
             --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json \

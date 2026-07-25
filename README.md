@@ -120,9 +120,22 @@ packs the nupkg, publishes native AOT binaries for `linux-x64`, `linux-arm64`, `
 A version containing a hyphen (`v0.2.0-rc.1`) is marked as a prerelease.
 
 Each RID builds on a runner that can link it natively rather than cross-compiling; `linux-arm64`
-uses the `ubuntu-24.04-arm` runner, which needs a public repo or a paid plan. Push to nuget.org
-is the last step and runs only if a `NUGET_API_KEY` repository secret exists — without it the job
-logs that it skipped and passes.
+uses the `ubuntu-24.04-arm` runner, which needs a public repo or a paid plan.
+
+Push to nuget.org is the last step and uses [trusted publishing][tp] — no API key is stored
+anywhere. The job mints a GitHub OIDC token, `NuGet/login` trades it for an API key nuget.org
+honours for one hour, and `dotnet nuget push` spends it immediately. Setup is two things:
+
+- A trusted publishing policy on nuget.org (your username → **Trusted Publishing**) owned by the
+  Wivuu organization, with repository owner `wivuu`, repository `wivuu.tabard`, workflow file
+  `release.yml`, and Environment left empty.
+- A `NUGET_USER` repository *variable* (not a secret) holding the nuget.org profile name of
+  whoever created the policy — the profile name, not an email address.
+
+Because the policy is keyed on the workflow file name, renaming `release.yml` breaks publishing
+until the policy is updated to match.
+
+[tp]: https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing
 
 ## Two things to verify on your machines
 
