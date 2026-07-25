@@ -161,7 +161,48 @@ public class ProfileTests
         await Assert.That(profile.Describe()).IsEqualTo("first@example.com  -  no token file");
     }
 
+    /// <summary>An OpenRouter profile has no OAuth token, so an expiry would be meaningless; what
+    /// matters is which model it will answer with.</summary>
+    [Test]
+    public async Task Describe_reports_an_openrouter_profile_by_its_model()
+    {
+        var dir = Sandbox.Scratch();
+        WriteSettings(dir, "~anthropic/claude-opus-latest");
+
+        await Assert
+            .That(At(dir).Describe())
+            .IsEqualTo("openrouter  -  ~anthropic/claude-opus-latest");
+    }
+
+    [Test]
+    public async Task Describe_falls_back_to_the_provider_when_no_model_is_set()
+    {
+        var dir = Sandbox.Scratch();
+        WriteSettings(dir, model: null);
+
+        await Assert.That(At(dir).Describe()).IsEqualTo("openrouter");
+    }
+
+    /// <summary>Settings that point somewhere else leave the account line exactly as it was.</summary>
+    [Test]
+    public async Task Describe_still_reads_the_login_when_settings_are_not_openrouter()
+    {
+        var dir = Sandbox.Scratch();
+        File.WriteAllText(Settings.FileFor(dir), """{"env":{"SOMETHING":"else"}}""");
+        WriteCredentials(dir, DateTimeOffset.UtcNow.AddHours(-1));
+
+        await Assert.That(At(dir).Describe()).IsEqualTo("refresh due");
+    }
+
     private static Profile At(string dir) => new() { Name = Path.GetFileName(dir), Dir = dir };
+
+    private static void WriteSettings(string dir, string? model)
+    {
+        var opus = model is null ? "" : $",\"{OpenRouter.Slots[0].Variable}\":\"{model}\"";
+        var env = $"\"{OpenRouter.BaseUrlVariable}\":\"{OpenRouter.BaseUrl}\"{opus}";
+
+        File.WriteAllText(Settings.FileFor(dir), $"{{\"env\":{{{env}}}}}");
+    }
 
     private static void WriteCredentials(string dir, DateTimeOffset expiresAt, string? plan = null)
     {

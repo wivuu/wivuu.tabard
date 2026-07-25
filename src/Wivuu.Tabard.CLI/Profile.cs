@@ -2,6 +2,14 @@ using System.Text.Json;
 
 namespace Wivuu.Tabard.Cli;
 
+/// <summary>Who the profile logs in to. Decided by what its settings.json says, never recorded
+/// separately, so it cannot disagree with how Claude Code will actually behave.</summary>
+internal enum Provider
+{
+    Anthropic,
+    OpenRouter,
+}
+
 internal sealed class Profile
 {
     private bool _read;
@@ -17,6 +25,12 @@ internal sealed class Profile
 
     public string CredentialsFile => Path.Combine(Dir, ".credentials.json");
     public string ClaudeJsonFile => Path.Combine(Dir, ".claude.json");
+    public string SettingsFile => Settings.FileFor(Dir);
+
+    private Provider _provider;
+
+    /// <summary>The model an OpenRouter profile answers '/model opus' with, for display.</summary>
+    private string? _model;
 
     /// <summary>
     /// Reads whatever we can recognise for display, once and only when something is about to show
@@ -29,6 +43,18 @@ internal sealed class Profile
             return;
 
         _read = true;
+
+        var env = Settings.ReadEnv(Dir);
+        if (OpenRouter.Configures(env))
+        {
+            _provider = Provider.OpenRouter;
+            _model = env.TryGetValue(OpenRouter.Slots[0].Variable, out var model) ? model : null;
+
+            // An OAuth token is not what this profile authenticates with, so reading one would only
+            // produce an expiry nobody should act on.
+            return;
+        }
+
         ReadCredentials();
         ReadAccount();
     }
@@ -174,6 +200,9 @@ internal sealed class Profile
     public string Describe()
     {
         ReadMetadata();
+
+        if (_provider is Provider.OpenRouter)
+            return _model is { Length: > 0 } model ? $"openrouter  -  {model}" : "openrouter";
 
         var parts = new List<string>(3);
 
