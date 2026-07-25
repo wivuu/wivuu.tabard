@@ -1,4 +1,4 @@
-namespace Tabard.Cli;
+namespace Wivuu.Tabard.Cli;
 
 internal sealed record MigrationResult(bool Adopted, IReadOnlyList<string> Warnings)
 {

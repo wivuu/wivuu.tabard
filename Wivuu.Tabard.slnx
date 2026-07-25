@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Wivuu.Tabard.CLI/Wivuu.Tabard.CLI.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Wivuu.Tabard.CLI.Tests/Wivuu.Tabard.CLI.Tests.csproj" />
+  </Folder>
+</Solution>

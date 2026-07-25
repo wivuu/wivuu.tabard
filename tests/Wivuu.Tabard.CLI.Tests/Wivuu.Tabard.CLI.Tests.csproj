@@ -15,6 +15,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/Tabard.CLI/Tabard.CLI.csproj" />
+    <ProjectReference Include="../../src/Wivuu.Tabard.CLI/Wivuu.Tabard.CLI.csproj" />
   </ItemGroup>
 </Project>

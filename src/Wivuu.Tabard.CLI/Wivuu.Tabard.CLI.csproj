@@ -7,7 +7,7 @@
     <LangVersion>latest</LangVersion>
 
     <AssemblyName>tabard</AssemblyName>
-    <RootNamespace>Tabard.Cli</RootNamespace>
+    <RootNamespace>Wivuu.Tabard.Cli</RootNamespace>
 
     <!-- AOT is a publish-time concern and needs a RID. Leaving it off otherwise keeps
          `dotnet pack` producing a portable IL tool package. -->
@@ -33,7 +33,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Tabard.CLI.Tests" />
+    <InternalsVisibleTo Include="Wivuu.Tabard.CLI.Tests" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

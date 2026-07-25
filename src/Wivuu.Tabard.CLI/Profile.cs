@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Tabard.Cli;
+namespace Wivuu.Tabard.Cli;
 
 internal sealed class Profile
 {

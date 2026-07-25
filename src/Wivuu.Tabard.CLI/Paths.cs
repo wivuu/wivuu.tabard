@@ -1,4 +1,4 @@
-namespace Tabard.Cli;
+namespace Wivuu.Tabard.Cli;
 
 internal static class Paths
 {

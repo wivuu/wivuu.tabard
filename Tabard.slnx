@@ -1,8 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/Tabard.CLI/Tabard.CLI.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/Tabard.CLI.Tests/Tabard.CLI.Tests.csproj" />
-  </Folder>
-</Solution>

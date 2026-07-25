@@ -1,4 +1,4 @@
-using Tabard.Cli;
+using Wivuu.Tabard.Cli;
 
 try
 {

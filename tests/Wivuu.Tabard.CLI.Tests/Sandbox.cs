@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace Tabard.Cli.Tests;
+namespace Wivuu.Tabard.Cli.Tests;
 
 /// <summary>
 /// Redirects the home directory the whole test run resolves against.

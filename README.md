@@ -67,7 +67,7 @@ tabard -- <claude args>     Force everything through to claude
 As a global .NET tool, from a checkout:
 
 ```sh
-dotnet pack src/Tabard.CLI -c Release
+dotnet pack src/Wivuu.Tabard.CLI -c Release
 dotnet tool install -g --add-source ./nupkg tabard
 ```
 
@@ -85,7 +85,7 @@ portable IL and needs the .NET 10 runtime; `RollForward` is `Major`, so a newer 
 For no runtime dependency at all, publish the native binary instead and drop it on your PATH:
 
 ```sh
-dotnet publish src/Tabard.CLI -c Release -r osx-arm64   # or linux-x64, win-x64
+dotnet publish src/Wivuu.Tabard.CLI -c Release -r osx-arm64   # or linux-x64, win-x64
 ```
 
 `PublishAot` turns on whenever a RID is given, so this produces a single ~2.4 MB native
@@ -99,7 +99,7 @@ dotnet build
 dotnet test
 ```
 
-The CLI lives in `src/Tabard.CLI` and its tests in `tests/Tabard.CLI.Tests`.
+The CLI lives in `src/Wivuu.Tabard.CLI` and its tests in `tests/Wivuu.Tabard.CLI.Tests`.
 
 ## CI / releases
 

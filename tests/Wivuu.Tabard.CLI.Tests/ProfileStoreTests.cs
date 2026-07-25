@@ -1,4 +1,4 @@
-namespace Tabard.Cli.Tests;
+namespace Wivuu.Tabard.Cli.Tests;
 
 /// <summary>
 /// These drive the real filesystem under the redirected home from <see cref="Sandbox"/>. There is

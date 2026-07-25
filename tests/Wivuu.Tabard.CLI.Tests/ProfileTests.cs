@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Tabard.Cli.Tests;
+namespace Wivuu.Tabard.Cli.Tests;
 
 public class ProfileTests
 {
