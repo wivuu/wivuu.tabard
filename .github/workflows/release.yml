@@ -1,0 +1,175 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v (e.g. 0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  ## A tag push carries the version; a manual run is told it. Everything downstream reads it here.
+  version:
+    runs-on: ubuntu-latest
+    name: Resolve Version
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+    steps:
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          case "$version" in
+            *-*) prerelease=true ;;   # 1.0.0-rc.1 and friends
+            *)   prerelease=false ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version (prerelease=$prerelease)"
+
+  ## Nothing ships unless the suite is green on every platform
+  test:
+    runs-on: ${{ matrix.os }}
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - name: Enable Automated Test Report Artifact Upload
+        uses: actions/github-script@v9
+        with:
+          script: |
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env['ACTIONS_RUNTIME_TOKEN']);
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env['ACTIONS_RESULTS_URL']);
+      - run: |
+          dotnet test --verbosity normal
+
+  ## Portable IL package for `dotnet tool install -g tabard`
+  pack:
+    runs-on: ubuntu-latest
+    name: Pack Tool Package
+    needs: [version, test]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet pack src/Tabard.CLI -c Release -p:Version=${{ needs.version.outputs.version }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nupkg
+          path: nupkg/*.nupkg
+          if-no-files-found: error
+
+  ## Native AOT binaries, one per RID. AOT links with the host toolchain, so each RID
+  ## builds on a runner that can produce it rather than cross-compiling.
+  binaries:
+    runs-on: ${{ matrix.os }}
+    name: Publish ${{ matrix.rid }}
+    needs: [version, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64, os: ubuntu-latest }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm }
+          - { rid: osx-arm64, os: macos-latest }
+          - { rid: osx-x64, os: macos-latest }
+          - { rid: win-x64, os: windows-latest }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - name: Install AOT prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev
+      - name: Publish
+        run: >
+          dotnet publish src/Tabard.CLI -c Release -r ${{ matrix.rid }}
+          -p:Version=${{ needs.version.outputs.version }}
+          -o publish/${{ matrix.rid }}
+      - name: Archive (tar.gz)
+        if: runner.os != 'Windows'
+        run: tar -czf "tabard-$VERSION-${{ matrix.rid }}.tar.gz" -C "publish/${{ matrix.rid }}" tabard
+      - name: Archive (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "publish/${{ matrix.rid }}/tabard.exe" -DestinationPath "tabard-$env:VERSION-${{ matrix.rid }}.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.rid }}
+          path: |
+            tabard-*.tar.gz
+            tabard-*.zip
+          if-no-files-found: error
+
+  ## Attach everything to a GitHub release
+  release:
+    runs-on: ubuntu-latest
+    name: Publish GitHub Release
+    needs: [version, pack, binaries]
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: "{binary-*,nupkg}"
+          merge-multiple: true
+      - name: Checksum
+        run: |
+          cd dist
+          sha256sum tabard* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Create release
+        run: |
+          flags=(--title "tabard v$VERSION" --generate-notes)
+          if [ "${{ needs.version.outputs.prerelease }}" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "v$VERSION" dist/* "${flags[@]}"
+
+  ## Push to nuget.org when a NUGET_API_KEY secret exists; a no-op otherwise
+  nuget:
+    runs-on: ubuntu-latest
+    name: Push to NuGet
+    needs: [version, pack, release]
+    steps:
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/download-artifact@v8
+        with:
+          name: nupkg
+          path: nupkg
+      - name: Push
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "NUGET_API_KEY is not set - skipping nuget.org push."
+            exit 0
+          fi
+          dotnet nuget push nupkg/*.nupkg \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate

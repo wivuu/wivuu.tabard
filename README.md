@@ -101,6 +101,29 @@ dotnet test
 
 The CLI lives in `src/Tabard.CLI` and its tests in `tests/Tabard.CLI.Tests`.
 
+## CI / releases
+
+`.github/workflows/ci.yml` runs on every push and pull request: the TUnit suite on Linux, macOS
+and Windows (symlink handling is the part most likely to differ per platform, so all three run),
+a `csharpier check`, and a `dotnet pack` to prove the tool package still builds.
+
+`.github/workflows/release.yml` fires on a `v*` tag, or by hand with a version:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The tag supplies the version — `v0.2.0` builds `0.2.0`, overriding `<Version>` in the csproj, so
+that property is only the fallback for local builds. Tests gate the release; after they pass it
+packs the nupkg, publishes native AOT binaries for `linux-x64`, `linux-arm64`, `osx-arm64`,
+`osx-x64` and `win-x64`, and attaches them with a `SHA256SUMS.txt` to a generated GitHub release.
+A version containing a hyphen (`v0.2.0-rc.1`) is marked as a prerelease.
+
+Each RID builds on a runner that can link it natively rather than cross-compiling; `linux-arm64`
+uses the `ubuntu-24.04-arm` runner, which needs a public repo or a paid plan. Push to nuget.org
+is the last step and runs only if a `NUGET_API_KEY` repository secret exists — without it the job
+logs that it skipped and passes.
+
 ## Two things to verify on your machines
 
 Both of these are assumptions the design rests on, and both are cheap to test.
@@ -158,3 +181,6 @@ so adoption, relinking and deletion are exercised as they actually run.
 
 Installs as a global .NET tool (`tabard`, verified end to end) and publishes as a native AOT
 binary from the same project.
+
+## Future
+- [ ] Support for OpenRouter API endpoint + api key handling
