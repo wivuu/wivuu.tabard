@@ -1,6 +1,53 @@
 # tabard
 
+[![CI](https://github.com/wivuu/wivuu.tabard/actions/workflows/ci.yml/badge.svg)](https://github.com/wivuu/wivuu.tabard/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Wivuu.Tabard.svg)](https://www.nuget.org/packages/Wivuu.Tabard)
+
 A Claude Code profile switcher. Launch `claude` through `tabard` and pick which login to use.
+
+## Install
+
+```sh
+dotnet tool install -g Wivuu.Tabard
+```
+
+The package id is `Wivuu.Tabard`; the command it installs is plain `tabard`. It lands in
+`~/.dotnet/tools`, which needs to be on your PATH, and needs the .NET 10 runtime (or newer).
+No runtime, or building from a checkout? See [other ways to install](#other-ways-to-install).
+
+## Usage
+
+```sh
+tabard                       # pick a profile, then launch claude
+tabard use work              # launch a specific profile
+tabard add personal          # create a profile (Anthropic or OpenRouter)
+tabard ls                    # list profiles — never changes anything
+```
+
+| Command | What it does |
+| --- | --- |
+| `tabard [claude args...]` | Pick a profile, then launch |
+| `tabard use <name> [-- ...]` | Launch a specific profile |
+| `tabard add <name>` | Create a profile, choosing Anthropic or OpenRouter |
+| `tabard rm <name>` | Delete a profile |
+| `tabard ls` | List profiles |
+| `tabard openrouter <cmd>` | Configure a profile's [OpenRouter settings](#openrouter-profiles) |
+| `tabard -- <claude args>` | Force everything through to claude |
+
+`tabard --help` is tabard's help; `tabard -- --help` reaches Claude Code's.
+
+**First run** adopts your existing login, so there is nothing to set up: `~/.claude` is moved to
+`~/.tabard/profiles/default` and linked back. With one profile there is no picker — `tabard` goes
+straight to `claude`. With more than one you get an arrow-key picker:
+
+```
+  Select a Claude profile
+
+  > work              erik@example.com  -  max  -  valid 7h
+    personal          erik@gmail.com    -  pro  -  refresh due
+
+  up/down move   enter launch   x x delete   esc quit
+```
 
 ## How it works
 
@@ -23,24 +70,11 @@ choice so a bare `claude` can follow it; deleting it is harmless.
 
 ## Behaviour
 
-**First run** adopts your existing login: `~/.claude` is *moved* to `~/.tabard/profiles/default`
-and `~/.claude` is linked back at it. Moving rather than copying keeps tokens and expiry intact
-with no second copy to go stale. `~/.claude.json` gets the same treatment.
+First run *moves* `~/.claude` to `~/.tabard/profiles/default` and links `~/.claude` back at it.
+Moving rather than copying keeps tokens and expiry intact with no second copy to go stale.
+`~/.claude.json` gets the same treatment.
 
-**One profile** → no picker, straight to `claude`.
-
-**More than one** → arrow-key picker:
-
-```
-  Select a Claude profile
-
-  > work              erik@example.com  -  max  -  valid 7h
-    personal          erik@gmail.com    -  pro  -  refresh due
-
-  up/down move   enter launch   x x delete   esc quit
-```
-
-`x` arms the highlighted row, a second `x` deletes it. Any other key disarms. If the window is
+In the picker, `x` arms the highlighted row, a second `x` deletes it. Any other key disarms. If the window is
 too short for every profile the list scrolls and the help line says how many are off-screen; if
 it is too short for a frame at all (under seven rows), tabard prints the list and asks you to use
 `tabard use <name>` rather than draw something you can't read.
@@ -48,20 +82,6 @@ it is too short for a frame at all (under seven rows), tabard prints the list an
 After a launch, `~/.claude` is repointed at whichever profile you chose, so a bare `claude`
 invocation stays consistent with your last choice. `tabard ls` never adopts or repoints anything —
 it is safe to run first just to see what tabard would do.
-
-## Commands
-
-```
-tabard [claude args...]     Pick a profile, then launch
-tabard use <name> [-- ...]  Launch a specific profile
-tabard add <name>           Create a profile, choosing Anthropic or OpenRouter
-tabard rm <name>            Delete a profile
-tabard ls                   List profiles
-tabard openrouter <cmd>     Configure a profile's OpenRouter settings
-tabard -- <claude args>     Force everything through to claude
-```
-
-`tabard --help` is tabard's help; `tabard -- --help` reaches Claude Code's.
 
 ## OpenRouter profiles
 
@@ -138,16 +158,10 @@ Claude Code cannot work without those — plus the aliases and routers, which de
 and would otherwise be filtered out of their own defaults. If OpenRouter can't be reached, a small
 built-in list is shown instead and any slug can still be set with a flag.
 
-## Install
+## Other ways to install
 
-As a global .NET tool, from nuget.org:
-
-```sh
-dotnet tool install -g Wivuu.Tabard
-```
-
-The package id is `Wivuu.Tabard` but the command it installs is plain `tabard` — the id has to
-sit under the reserved `Wivuu.*` prefix, the command doesn't.
+The package id has to sit under the reserved `Wivuu.*` prefix; the command doesn't, which is why
+`dotnet tool install -g Wivuu.Tabard` gives you a plain `tabard`.
 
 From a checkout instead:
 
