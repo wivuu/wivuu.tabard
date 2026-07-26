@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: Wivuu.Tabard
-PackageVersion: 0.1.1
+PackageVersion: 0.3.0
 PackageLocale: en-US
 Publisher: Wivuu
 PublisherUrl: https://github.com/wivuu
@@ -24,6 +24,6 @@ Tags:
   - cli
   - developer-tools
   - profile
-ReleaseNotesUrl: https://github.com/wivuu/wivuu.tabard/releases/tag/v0.1.1
+ReleaseNotesUrl: https://github.com/wivuu/wivuu.tabard/releases/tag/v0.3.0
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0

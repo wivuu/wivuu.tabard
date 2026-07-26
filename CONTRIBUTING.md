@@ -65,10 +65,11 @@ brew install tabard
 ```
 
 The `packaging` job in `release.yml` rewrites the version and the four `sha256` lines on every
-non-prerelease tag and commits the result to `master`. Each `sha256` line carries a trailing RID
-comment (`# osx-arm64`) that the job keys off, and it reads every hash back after writing — a hash
-that failed to update would serve the previous release under the new version number. Prereleases
-are skipped, so `v0.2.0-rc.1` never reaches brew users.
+non-prerelease tag and opens a `formula/vX.Y.Z` PR with the result — master takes changes through a
+pull request only, so the job cannot push the bump directly. Each `sha256` line carries a trailing
+RID comment (`# osx-arm64`) that the job keys off, and it reads every hash back after writing — a
+hash that failed to update would serve the previous release under the new version number.
+Prereleases are skipped, so `v0.2.0-rc.1` never reaches brew users.
 
 To check the formula before tagging:
 
@@ -88,7 +89,7 @@ The first submission has to be done by hand, because `wingetcreate update` edits
 already published:
 
 ```sh
-wingetcreate submit --token <pat> manifests/w/Wivuu/Tabard/0.1.1
+wingetcreate submit --token <pat> manifests/w/Wivuu/Tabard/0.3.0
 ```
 
 Once that PR merges into `winget-pkgs`, set up the automation:
