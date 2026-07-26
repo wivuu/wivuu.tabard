@@ -60,15 +60,27 @@ internal static class ProfileStore
             profiles.Add(new Profile { Name = name, Dir = dir });
         }
 
-        // Most recently used first so enter-enter is the common path.
-        var last = LastUsed();
+        // The saved order first, then anything it does not name. Ordering by what was used last
+        // would reshuffle the list on every launch, which is exactly what the numbered rows and
+        // the picker's reorder mode exist to stop.
+        // Ordinal, matching Find: two profiles differing only in case cannot both exist through
+        // tabard, so an entry that fails to match here is a stale one, and a case-insensitive
+        // lookup would instead give two distinct profiles the same rank - the unstable-Sort
+        // hazard the tiebreak below exists to avoid.
+        var order = Order();
+        var rank = new Dictionary<string, int>(order.Count, StringComparer.Ordinal);
+        for (var i = 0; i < order.Count; i++)
+            rank[order[i]] = i;
+
         profiles.Sort(
             (a, b) =>
             {
-                var aLast = string.Equals(a.Name, last, StringComparison.Ordinal);
-                var bLast = string.Equals(b.Name, last, StringComparison.Ordinal);
-                if (aLast != bLast)
-                    return aLast ? -1 : 1;
+                // A profile the order does not name - created since it was written, or created
+                // outside tabard - lands in the tail rather than nowhere.
+                var aRank = rank.TryGetValue(a.Name, out var ar) ? ar : int.MaxValue;
+                var bRank = rank.TryGetValue(b.Name, out var br) ? br : int.MaxValue;
+                if (aRank != bRank)
+                    return aRank.CompareTo(bRank);
 
                 // Ordinal tiebreak: names differing only in case must not compare equal, or an
                 // unstable Sort would let them swap places between runs.
@@ -111,6 +123,72 @@ internal static class ProfileStore
         var temp = $"{Paths.LastUsedFile}.{Environment.ProcessId}.tmp";
         File.WriteAllText(temp, name);
         File.Move(temp, Paths.LastUsedFile, overwrite: true);
+    }
+
+    /// <summary>
+    /// The saved picker order, or empty. Fails soft like <see cref="LastUsed"/>: an order that
+    /// cannot be read costs an alphabetical list, not a profile, and names in it that no longer
+    /// exist are <see cref="List"/>'s problem to ignore rather than this one's to validate.
+    /// </summary>
+    public static List<string> Order()
+    {
+        var names = new List<string>();
+
+        try
+        {
+            if (!File.Exists(Paths.OrderFile))
+                return names;
+
+            foreach (var line in File.ReadLines(Paths.OrderFile))
+            {
+                // First mention wins. A hand-edited file can name the same profile twice, and a
+                // profile that appears in two places has no position at all.
+                var name = line.Trim();
+                if (name.Length > 0 && !names.Contains(name, StringComparer.Ordinal))
+                    names.Add(name);
+            }
+        }
+        catch
+        {
+            return [];
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    /// Records the order. Callers pass the profiles they are actually showing, so writing is also
+    /// what prunes names that have gone away and keeps the file from growing without bound.
+    /// </summary>
+    public static void SetOrder(IEnumerable<string> names)
+    {
+        Directory.CreateDirectory(Paths.TabardRoot);
+
+        // Path.GetInvalidFileNameChars() is only { '\0', '/' } on Unix, so a profile name can hold
+        // a line break there and ValidateName allows it. One line per name has no way to say that,
+        // and the halves would read back as two entries naming nothing - so it keeps no position
+        // rather than corrupting its neighbours'.
+        var lines = names.Where(name => name.AsSpan().IndexOfAny('\r', '\n') < 0);
+
+        // Temp file plus rename, as for 'last': a half-written order would silently drop the
+        // profiles past the truncation to the end of the list.
+        var temp = $"{Paths.OrderFile}.{Environment.ProcessId}.tmp";
+        File.WriteAllLines(temp, lines);
+        File.Move(temp, Paths.OrderFile, overwrite: true);
+    }
+
+    /// <summary>Keeping the order in step is housekeeping - it must not fail the rename or the
+    /// delete it is riding along with, both of which have already changed the disk.</summary>
+    private static void TrySetOrder(IEnumerable<string> names)
+    {
+        try
+        {
+            SetOrder(names);
+        }
+        catch
+        {
+            // Worst case the profile falls to the end of the list and can be moved back.
+        }
     }
 
     /// <summary>
@@ -220,6 +298,16 @@ internal static class ProfileStore
         if (string.Equals(LastUsed(), profile.Name, StringComparison.Ordinal))
             SetLastUsed(newName);
 
+        // The order names profiles, so a rename has to be carried over. Rewritten in place rather
+        // than appended: keeping the position is the whole point of having saved one.
+        var order = Order();
+        var at = order.IndexOf(profile.Name);
+        if (at >= 0)
+        {
+            order[at] = newName;
+            TrySetOrder(order);
+        }
+
         return new RenameResult(renamed, linked ? Relink(renamed) : []);
     }
 
@@ -281,6 +369,11 @@ internal static class ProfileStore
                 // Harmless if it lingers - List() tolerates a name that no longer exists.
             }
         }
+
+        // Same reasoning: List() ignores an entry naming nothing, so this is tidiness rather than
+        // correctness - but an order file that only ever grows is its own small mess.
+        if (Order() is { Count: > 0 } order && order.Remove(profile.Name))
+            TrySetOrder(order);
 
         if (!linkedDir && !linkedJson)
             return [];

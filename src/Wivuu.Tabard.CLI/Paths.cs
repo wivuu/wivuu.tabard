@@ -20,6 +20,10 @@ internal static class Paths
     public static string LastUsedFile { get; } = Path.Combine(TabardRoot, "last");
     public static string LockFile { get; } = Path.Combine(TabardRoot, "lock");
 
+    /// <summary>The picker's order, one profile name per line. A preference, not a source of
+    /// truth - the profiles themselves are still just the directories under <see cref="ProfilesRoot"/>.</summary>
+    public static string OrderFile { get; } = Path.Combine(TabardRoot, "order");
+
     /// <summary>The config root Claude Code uses when CLAUDE_CONFIG_DIR is unset.</summary>
     public static string ClaudeDir { get; } = Path.Combine(Home, ".claude");
 
