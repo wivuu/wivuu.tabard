@@ -76,6 +76,37 @@ To check the formula before tagging:
 brew style Formula/tabard.rb
 ```
 
+## Install scripts
+
+`install.sh` and `install.ps1` at the root serve the `curl | sh` and `irm | iex` one-liners in the
+README. Like the tap they build nothing: they resolve the newest release, download the native AOT
+binary for the host RID, check it against that release's `SHA256SUMS.txt`, and drop it on the PATH.
+
+Two consequences worth keeping in mind:
+
+- **Nothing about a release touches them.** They discover the version at run time — `install.sh`
+  reads the redirect from `/releases/latest`, `install.ps1` reads `tag_name` from the API — so
+  neither needs the `packaging` job, and both stay correct across releases. `/releases/latest`
+  never resolves to a prerelease, which is the same promise brew users get.
+- **Master is production.** They are fetched from `raw.githubusercontent.com/.../master/`, so a
+  push to master is a deploy to everyone running the one-liner, with no per-version rollback. Test
+  before merging.
+
+Testing means running them, with `--dir` so nothing lands on your real PATH:
+
+```sh
+sh install.sh --dir /tmp/t                  # fresh install
+sh install.sh --dir /tmp/t                  # again: should report "nothing to do"
+sh install.sh                               # with brew's tabard present: should defer to brew
+pwsh -File install.ps1 -InstallDir /tmp/w -NoPath   # the win-x64 path, exercisable from any OS
+```
+
+The PowerShell script runs on Windows PowerShell 5.1 as well as pwsh 7, so keep to syntax both
+accept. `pwsh` on macOS or Linux will run it far enough to check the download, checksum and extract
+path — `PROCESSOR_ARCHITECTURE` needs to be set to `AMD64` there, and the user-PATH write silently
+no-ops off Windows. Only `win-x64` is published, so ARM64 Windows is deliberately given the x64
+binary to run under emulation; publishing `win-arm64` from `release.yml` would be the fix.
+
 ## Two things to verify on your machines
 
 Both of these are assumptions the design rests on, and both are cheap to test.

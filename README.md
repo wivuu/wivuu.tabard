@@ -7,6 +7,18 @@ A Claude Code profile switcher. Launch `claude` through `tabard` and pick which 
 
 ## Install
 
+**macOS / Linux** — one line, no package manager:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.sh | sh
+```
+
+**Windows** — one line in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.ps1 | iex
+```
+
 **macOS / Linux** — Homebrew, from this repo's own tap:
 
 ```sh
@@ -20,10 +32,14 @@ brew install tabard
 dotnet tool install -g Wivuu.Tabard
 ```
 
-Homebrew installs the native binary, so it needs no .NET runtime. The .NET tool is portable IL: it
-needs the .NET 10 runtime (or newer) and lands in `~/.dotnet/tools`, which has to be on your PATH.
-The package id is `Wivuu.Tabard` either way; the command is always plain `tabard`. For a raw binary
-or a build from source, see [other ways to install](#other-ways-to-install).
+The scripts and Homebrew all install the same native binary, so none of them need a .NET runtime;
+the scripts land it in `~/.local/bin` (`%LOCALAPPDATA%\Programs\tabard` on Windows, which they add
+to your user PATH) after checking it against the release's own `SHA256SUMS.txt`. Re-run the same
+line to upgrade — it installs over the copy already on your PATH, or tells you to use `brew` or
+`dotnet tool` if one of those owns it. The .NET tool is portable IL instead: it needs the .NET 10
+runtime (or newer) and lands in `~/.dotnet/tools`, which has to be on your PATH. The package id is
+`Wivuu.Tabard` either way; the command is always plain `tabard`. For a raw binary or a build from
+source, see [other ways to install](#other-ways-to-install).
 
 ## Usage
 
@@ -176,10 +192,28 @@ why `dotnet tool install -g Wivuu.Tabard` gives you a plain `tabard`.
 To upgrade or remove what you installed above:
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.sh | sh  # upgrade
+rm ~/.local/bin/tabard                                                                 # remove
 brew upgrade tabard  ;  brew uninstall tabard
 dotnet tool update -g Wivuu.Tabard
 dotnet tool uninstall -g Wivuu.Tabard
 ```
+
+The install scripts take a few options, though `curl | sh` and `irm | iex` both need help passing
+them — `sh -s --` for the former, an explicit script block for the latter:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.sh | sh -s -- --dir ~/bin
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.ps1))) -InstallDir C:\bin
+```
+
+`--version`/`-Version` pins a release instead of taking the latest, `--dir`/`-InstallDir` picks the
+directory, `--force`/`-Force` installs even when Homebrew or `dotnet tool` owns the `tabard` already
+on your PATH, and `-NoPath` leaves the Windows user PATH alone. Each has an environment variable
+equivalent (`TABARD_VERSION`, `TABARD_INSTALL_DIR`, `TABARD_FORCE`) for the piped forms.
 
 For no runtime dependency and no package manager, grab a native binary for your platform from
 the [latest release](https://github.com/wivuu/wivuu.tabard/releases/latest) — `linux-x64`,
