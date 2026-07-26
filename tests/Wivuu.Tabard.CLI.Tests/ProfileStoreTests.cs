@@ -347,6 +347,144 @@ public class ProfileStoreTests
     }
 
     [Test]
+    public async Task Rename_moves_the_directory_with_its_contents()
+    {
+        var profile = ProfileStore.Create("work");
+        File.WriteAllText(Path.Combine(profile.Dir, ".credentials.json"), "{}");
+
+        var result = ProfileStore.Rename(profile, "day-job");
+
+        await Assert.That(result.Warnings).IsEmpty();
+        await Assert.That(result.Profile.Name).IsEqualTo("day-job");
+        await Assert.That(Directory.Exists(profile.Dir)).IsFalse();
+        await Assert
+            .That(File.ReadAllText(Path.Combine(result.Profile.Dir, ".credentials.json")))
+            .IsEqualTo("{}");
+        await Assert.That(Names()).IsEqualTo("day-job");
+    }
+
+    [Test]
+    public async Task Rename_to_the_same_name_changes_nothing()
+    {
+        var profile = ProfileStore.Create("work");
+
+        var result = ProfileStore.Rename(profile, "work");
+
+        await Assert.That(result.Warnings).IsEmpty();
+        await Assert.That(Directory.Exists(profile.Dir)).IsTrue();
+        await Assert.That(Names()).IsEqualTo("work");
+    }
+
+    /// <summary>Recasing is the one time the case-insensitive clash check is looking at the profile
+    /// being renamed, and on a case-insensitive filesystem the move needs a staging name.</summary>
+    [Test]
+    public async Task Rename_can_change_only_the_case()
+    {
+        var profile = ProfileStore.Create("work");
+
+        var result = ProfileStore.Rename(profile, "Work");
+
+        await Assert.That(result.Profile.Name).IsEqualTo("Work");
+        await Assert.That(Names()).IsEqualTo("Work");
+        await Assert.That(Path.GetFileName(result.Profile.Dir)).IsEqualTo("Work");
+    }
+
+    [Test]
+    public async Task Rename_rejects_a_name_another_profile_holds()
+    {
+        var profile = ProfileStore.Create("work");
+        ProfileStore.Create("personal");
+
+        await Assert
+            .That(() => ProfileStore.Rename(profile, "personal"))
+            .Throws<InvalidOperationException>();
+        await Assert
+            .That(() => ProfileStore.Rename(profile, "PERSONAL"))
+            .Throws<InvalidOperationException>();
+        await Assert.That(Directory.Exists(profile.Dir)).IsTrue();
+    }
+
+    [Test]
+    [Arguments("")]
+    [Arguments("   ")]
+    [Arguments("..")]
+    [Arguments(".hidden")]
+    [Arguments("a/b")]
+    [Arguments("CON")]
+    public async Task Rename_rejects_a_name_that_would_not_travel(string name)
+    {
+        var profile = ProfileStore.Create("work");
+
+        await Assert.That(() => ProfileStore.Rename(profile, name)).Throws<ArgumentException>();
+        await Assert.That(Names()).IsEqualTo("work");
+    }
+
+    [Test]
+    public async Task Rename_carries_last_used_over()
+    {
+        var profile = ProfileStore.Create("work");
+        ProfileStore.SetLastUsed("work");
+
+        ProfileStore.Rename(profile, "day-job");
+
+        await Assert.That(ProfileStore.LastUsed()).IsEqualTo("day-job");
+    }
+
+    [Test]
+    public async Task Rename_leaves_a_last_used_naming_another_profile_alone()
+    {
+        var profile = ProfileStore.Create("work");
+        ProfileStore.Create("personal");
+        ProfileStore.SetLastUsed("personal");
+
+        ProfileStore.Rename(profile, "day-job");
+
+        await Assert.That(ProfileStore.LastUsed()).IsEqualTo("personal");
+    }
+
+    /// <summary>The links hold the old path, which the move has just made disappear.</summary>
+    [Test]
+    public async Task Rename_repoints_the_links_at_the_new_directory()
+    {
+        var profile = ProfileStore.Create("work");
+        ProfileStore.Relink(profile);
+
+        var result = ProfileStore.Rename(profile, "day-job");
+
+        await Assert.That(result.Warnings).IsEmpty();
+        await Assert.That(Links.PointsAt(Paths.ClaudeDir, result.Profile.Dir)).IsTrue();
+        await Assert.That(Links.PointsAt(Paths.ClaudeJson, result.Profile.ClaudeJsonFile)).IsTrue();
+    }
+
+    [Test]
+    public async Task Rename_leaves_the_links_alone_when_another_profile_holds_them()
+    {
+        var linked = ProfileStore.Create("linked");
+        var other = ProfileStore.Create("other");
+        ProfileStore.Relink(linked);
+
+        ProfileStore.Rename(other, "renamed");
+
+        await Assert.That(Links.PointsAt(Paths.ClaudeDir, linked.Dir)).IsTrue();
+        await Assert.That(Links.PointsAt(Paths.ClaudeJson, linked.ClaudeJsonFile)).IsTrue();
+    }
+
+    /// <summary>A migrate-installer install travels with the profile, so repointing at the new path
+    /// is exactly what keeps the 'claude' command working.</summary>
+    [Test]
+    public async Task Rename_repoints_a_profile_holding_a_local_install()
+    {
+        var profile = ProfileStore.Create("work");
+        Directory.CreateDirectory(Path.Combine(profile.Dir, "local"));
+        ProfileStore.Relink(profile);
+
+        var result = ProfileStore.Rename(profile, "day-job");
+
+        await Assert.That(result.Warnings).IsEmpty();
+        await Assert.That(Links.PointsAt(Paths.ClaudeDir, result.Profile.Dir)).IsTrue();
+    }
+
+    [Test]
     public async Task Delete_removes_the_directory()
     {
         var profile = ProfileStore.Create("work");

@@ -72,7 +72,7 @@ straight to `claude`. With more than one you get an arrow-key picker:
   > work              erik@example.com  -  max  -  valid 7h
     personal          erik@gmail.com    -  pro  -  refresh due
 
-  up/down move   enter launch   x x delete   esc quit
+  up/down move   enter launch   r rename   x x delete   esc quit
 ```
 
 ## How it works
@@ -100,7 +100,10 @@ First run *moves* `~/.claude` to `~/.tabard/profiles/default` and links `~/.clau
 Moving rather than copying keeps tokens and expiry intact with no second copy to go stale.
 `~/.claude.json` gets the same treatment.
 
-In the picker, `x` arms the highlighted row, a second `x` deletes it. Any other key disarms. If the window is
+In the picker, `x` arms the highlighted row, a second `x` deletes it. Any other key disarms. `r` turns the
+highlighted row into a text field holding its current name — `enter` renames the profile's directory, `esc`
+leaves it alone, and a name that is already taken or would not travel is reported without leaving the field.
+If the window is
 too short for every profile the list scrolls and the help line says how many are off-screen; if
 it is too short for a frame at all (under seven rows), tabard prints the list and asks you to use
 `tabard use <name>` rather than draw something you can't read.

@@ -79,7 +79,7 @@ internal static class Prompt
                     frameHeight
                 );
 
-                var key = Console.ReadKey(intercept: true);
+                var key = Term.ReadKey();
                 var control = key.Modifiers.HasFlag(ConsoleModifiers.Control);
 
                 if (control && key.Key is ConsoleKey.C)
@@ -162,7 +162,7 @@ internal static class Prompt
             {
                 Paint(label, secret ? new string('*', value.Length) : value.ToString());
 
-                var key = Console.ReadKey(intercept: true);
+                var key = Term.ReadKey();
                 var control = key.Modifiers.HasFlag(ConsoleModifiers.Control);
 
                 if (control && key.Key is ConsoleKey.C)
@@ -216,7 +216,7 @@ internal static class Prompt
 
         while (true)
         {
-            var key = Console.ReadKey(intercept: true);
+            var key = Term.ReadKey();
 
             if (key.Key is ConsoleKey.C && key.Modifiers.HasFlag(ConsoleModifiers.Control))
             {

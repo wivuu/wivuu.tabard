@@ -1,9 +1,14 @@
+using System.Text;
+
 namespace Wivuu.Tabard.Cli;
 
 internal static class Picker
 {
     private const int ChromeLines = 5; // header, blank, blank, help, status
     private const int NameWidth = 18;
+
+    private const int HeaderLines = 2; // rows start below the title and its blank line
+    private const int NameColumn = 3; // ' ' + marker + ' '
 
     /// <summary>Returns the chosen profile, or null if the user quit or deleted everything.</summary>
     public static Profile? Show(List<Profile> profiles)
@@ -29,6 +34,7 @@ internal static class Picker
         var index = 0;
         var offset = 0;
         var armed = -1;
+        StringBuilder? draft = null; // The name being typed, or null when not renaming.
         string? status = null;
         var notes = new List<string>();
 
@@ -53,13 +59,88 @@ internal static class Picker
             while (true)
             {
                 offset = Scroll(offset, index, rows, profiles.Count);
-                Render(profiles, index, offset, rows, armed, status, top, frameHeight);
+                Render(
+                    profiles,
+                    index,
+                    offset,
+                    rows,
+                    armed,
+                    draft?.ToString(),
+                    status,
+                    top,
+                    frameHeight
+                );
 
-                var key = Console.ReadKey(intercept: true);
+                if (draft is null)
+                    Term.HideCursor();
+                else
+                    Caret(top + HeaderLines + index - offset, NameColumn + draft.Length);
+
+                var key = Term.ReadKey();
+                var control = key.Modifiers.HasFlag(ConsoleModifiers.Control);
                 status = null;
 
-                if (key.Key == ConsoleKey.C && key.Modifiers.HasFlag(ConsoleModifiers.Control))
+                if (key.Key == ConsoleKey.C && control)
                     return Leave(null);
+
+                // Handled before the keys below because while a name is being typed every printable
+                // key is text, including the ones that are commands the rest of the time.
+                if (draft is not null)
+                {
+                    switch (key.Key)
+                    {
+                        case ConsoleKey.Enter:
+                            var subject = profiles[index];
+                            try
+                            {
+                                var result = ProfileStore.Rename(subject, draft.ToString().Trim());
+
+                                notes.AddRange(result.Warnings);
+                                profiles[index] = result.Profile;
+                                status = string.Equals(
+                                    result.Profile.Name,
+                                    subject.Name,
+                                    StringComparison.Ordinal
+                                )
+                                    ? null
+                                    : $"renamed '{subject.Name}' to '{result.Profile.Name}'";
+
+                                draft = null;
+                            }
+                            catch (Exception ex)
+                            {
+                                // Stay in the field: a rejected name is one to correct, not retype.
+                                status = ex.Message;
+                            }
+
+                            break;
+
+                        case ConsoleKey.Escape:
+                            if (Term.SwallowSplitEscape())
+                                break;
+
+                            draft = null;
+                            break;
+
+                        case ConsoleKey.Backspace:
+                            if (draft.Length > 0)
+                                draft.Length--;
+
+                            break;
+
+                        case ConsoleKey.U when control:
+                            draft.Clear();
+                            break;
+
+                        default:
+                            if (!control && !char.IsControl(key.KeyChar))
+                                draft.Append(key.KeyChar);
+
+                            break;
+                    }
+
+                    continue;
+                }
 
                 switch (key.Key)
                 {
@@ -77,6 +158,15 @@ internal static class Picker
 
                     case ConsoleKey.Enter:
                         return profiles.Count == 0 ? Leave(null) : Leave(profiles[index]);
+
+                    case ConsoleKey.R:
+                        if (profiles.Count == 0)
+                            break;
+
+                        // Seeded with the current name, so a small correction is a small edit.
+                        draft = new StringBuilder(profiles[index].Name);
+                        armed = -1;
+                        break;
 
                     case ConsoleKey.X:
                         if (profiles.Count == 0)
@@ -148,12 +238,28 @@ internal static class Picker
         return Math.Clamp(offset, 0, Math.Max(0, count - rows));
     }
 
+    /// <summary>Parks the terminal cursor at the end of the name being typed, so typing looks like
+    /// typing rather than characters appearing beside a hidden cursor.</summary>
+    private static void Caret(int row, int column)
+    {
+        try
+        {
+            Console.SetCursorPosition(Math.Min(column, Term.WindowWidth() - 1), row);
+            Console.CursorVisible = true;
+        }
+        catch
+        {
+            // Window shrank under us; the next keystroke redraws.
+        }
+    }
+
     private static void Render(
         IReadOnlyList<Profile> profiles,
         int index,
         int offset,
         int rows,
         int armed,
+        string? draft,
         string? status,
         int top,
         int frameHeight
@@ -172,6 +278,14 @@ internal static class Picker
             var name = Term.Clip(profile.Name, NameWidth - 1).PadRight(NameWidth);
             var marker = selected ? ">" : " ";
 
+            // The field takes the whole row: a name being typed can outgrow the name column, and
+            // what the profile currently holds is not what is being edited.
+            if (draft is not null && selected)
+            {
+                lines.Add(($" {marker} {draft}", ConsoleColor.Yellow));
+                continue;
+            }
+
             if (i == armed)
             {
                 lines.Add(($" {marker} {name}press x again to delete", ConsoleColor.Red));
@@ -184,7 +298,9 @@ internal static class Picker
         }
 
         var hidden = profiles.Count - rows;
-        var help = "  up/down move   enter launch   x x delete   esc quit";
+        var help = draft is null
+            ? "  up/down move   enter launch   r rename   x x delete   esc quit"
+            : "  type a new name   enter save   esc cancel";
 
         lines.Add(("", null));
         lines.Add((hidden > 0 ? $"{help}   ({hidden} more)" : help, ConsoleColor.DarkGray));
