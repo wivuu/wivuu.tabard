@@ -29,7 +29,7 @@
          as plain `tabard`. ToolCommandName is what lands on PATH; PackageId is only the id. -->
     <ToolCommandName>tabard</ToolCommandName>
     <PackageId>Wivuu.Tabard</PackageId>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <Authors>Wivuu</Authors>
     <Copyright>Copyright (c) Wivuu</Copyright>
     <Description>A Claude Code profile switcher. Launch `claude` through `tabard` and pick which login to use.</Description>
