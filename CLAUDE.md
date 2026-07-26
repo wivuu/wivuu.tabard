@@ -33,10 +33,10 @@ Homebrew and winget users are only ever offered a stable version.
 
 ## Do not hand-edit the packaging files
 
-The `packaging` job owns the version inside `Formula/tabard.rb` — and inside
-`manifests/w/Wivuu/Tabard/` once winget lands. After each stable release it rewrites the version,
-URLs and checksums from the release's own `SHA256SUMS.txt` and opens a `formula/vX.Y.Z` PR that
-merges itself once CI is green.
+The `packaging` job owns the version inside `Formula/tabard.rb` and inside
+`manifests/w/Wivuu/Tabard/`. After each stable release it rewrites the version, URLs and checksums
+from the release's own `SHA256SUMS.txt` and opens a `formula/vX.Y.Z` PR that merges itself once CI
+is green.
 
 The bump cannot be pushed straight to master: the `prs` ruleset requires a pull request, and its
 bypass list cannot name the Actions bot (GitHub only accepts roles, teams, deploy keys and

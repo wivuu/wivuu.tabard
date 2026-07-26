@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: Wivuu.Tabard
+PackageVersion: 0.3.0
+MinimumOSVersion: 10.0.0.0
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: tabard.exe
+    PortableCommandAlias: tabard
+Commands:
+  - tabard
+ReleaseDate: 2026-07-26
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/wivuu/wivuu.tabard/releases/download/v0.3.0/tabard-0.3.0-win-x64.zip
+    InstallerSha256: B568EEB34379176142A8F9395D95ED4373EF1F4D69983E3516E73528D9E53FBA
+ManifestType: installer
+ManifestVersion: 1.6.0

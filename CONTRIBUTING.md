@@ -65,16 +65,42 @@ brew install tabard
 ```
 
 The `packaging` job in `release.yml` rewrites the version and the four `sha256` lines on every
-non-prerelease tag and commits the result to `master`. Each `sha256` line carries a trailing RID
-comment (`# osx-arm64`) that the job keys off, and it reads every hash back after writing — a hash
-that failed to update would serve the previous release under the new version number. Prereleases
-are skipped, so `v0.2.0-rc.1` never reaches brew users.
+non-prerelease tag and opens a `formula/vX.Y.Z` PR with the result — master takes changes through a
+pull request only, so the job cannot push the bump directly. Each `sha256` line carries a trailing
+RID comment (`# osx-arm64`) that the job keys off, and it reads every hash back after writing — a
+hash that failed to update would serve the previous release under the new version number.
+Prereleases are skipped, so `v0.2.0-rc.1` never reaches brew users.
 
 To check the formula before tagging:
 
 ```sh
 brew style Formula/tabard.rb
 ```
+
+## winget
+
+`manifests/w/Wivuu/Tabard/<version>/` holds the three manifests, laid out the way
+`microsoft/winget-pkgs` wants them. The package is a zip with a nested portable exe, which is why
+the installer manifest declares `NestedInstallerType: portable` and a `PortableCommandAlias` of
+`tabard`. Like the formula, it points at binaries the release already published rather than
+building anything.
+
+The first submission has to be done by hand, because `wingetcreate update` edits a manifest that is
+already published:
+
+```sh
+wingetcreate submit --token <pat> manifests/w/Wivuu/Tabard/0.3.0
+```
+
+Once that PR merges into `winget-pkgs`, set up the automation:
+
+- A `WINGET_TOKEN` repository *secret* — a classic PAT with `public_repo`, on an account that has
+  forked `microsoft/winget-pkgs`. It opens the PR.
+- A `WINGET_PUBLISH` repository *variable* set to `true`. The `winget` job is gated on it, so
+  releases don't fail on submissions that can't succeed yet.
+
+The `packaging` job keeps the in-repo manifests current on each release regardless; the `winget`
+job is what actually opens the PR.
 
 ## Install scripts
 

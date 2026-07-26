@@ -26,16 +26,22 @@ brew tap wivuu/tabard https://github.com/wivuu/wivuu.tabard
 brew install tabard
 ```
 
+**Windows** — winget:
+
+```sh
+winget install Wivuu.Tabard
+```
+
 **Anywhere with .NET** — as a global .NET tool:
 
 ```sh
 dotnet tool install -g Wivuu.Tabard
 ```
 
-The scripts and Homebrew all install the same native binary, so none of them need a .NET runtime;
-the scripts land it in `~/.local/bin` (`%LOCALAPPDATA%\Programs\tabard` on Windows, which they add
-to your user PATH) after checking it against the release's own `SHA256SUMS.txt`. Re-run the same
-line to upgrade — it installs over the copy already on your PATH, or tells you to use `brew` or
+The scripts, Homebrew and winget all install the same native binary, so none of them need a .NET
+runtime; the scripts land it in `~/.local/bin` (`%LOCALAPPDATA%\Programs\tabard` on Windows, which
+they add to your user PATH) after checking it against the release's own `SHA256SUMS.txt`. Re-run the
+same line to upgrade — it installs over the copy already on your PATH, or tells you to use `brew` or
 `dotnet tool` if one of those owns it. The .NET tool is portable IL instead: it needs the .NET 10
 runtime (or newer) and lands in `~/.dotnet/tools`, which has to be on your PATH. The package id is
 `Wivuu.Tabard` either way; the command is always plain `tabard`. For a raw binary or a build from
@@ -209,7 +215,8 @@ To upgrade or remove what you installed above:
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.sh | sh  # upgrade
 rm ~/.local/bin/tabard                                                                 # remove
-brew upgrade tabard  ;  brew uninstall tabard
+brew upgrade tabard          ;  brew uninstall tabard
+winget upgrade Wivuu.Tabard  ;  winget uninstall Wivuu.Tabard
 dotnet tool update -g Wivuu.Tabard
 dotnet tool uninstall -g Wivuu.Tabard
 ```
@@ -233,7 +240,7 @@ equivalent (`TABARD_VERSION`, `TABARD_INSTALL_DIR`, `TABARD_FORCE`) for the pipe
 For no runtime dependency and no package manager, grab a native binary for your platform from
 the [latest release](https://github.com/wivuu/wivuu.tabard/releases/latest) — `linux-x64`,
 `linux-arm64`, `osx-arm64`, `osx-x64` and `win-x64` are published with a `SHA256SUMS.txt` — and
-drop it on your PATH. This is the same binary Homebrew installs.
+drop it on your PATH. This is the same binary Homebrew and winget install.
 
 From a checkout instead:
 
