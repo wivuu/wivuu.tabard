@@ -39,6 +39,12 @@ class Tabard < Formula
 
   def install
     bin.install "tabard"
+
+    # Asks the binary that was just installed for its own script, so brew users get completion
+    # without running `tabard completion install`. The zsh script doubles as an fpath function
+    # file - it opens with `#compdef tabard` - which is what lands here as `_tabard`. No :fish,
+    # because `tabard completion` has nothing for it and would fail the install.
+    generate_completions_from_executable(bin/"tabard", "completion", shells: [:bash, :zsh])
   end
 
   test do

@@ -24,6 +24,9 @@ internal static class Paths
     /// truth - the profiles themselves are still just the directories under <see cref="ProfilesRoot"/>.</summary>
     public static string OrderFile { get; } = Path.Combine(TabardRoot, "order");
 
+    /// <summary>Where 'tabard completion install' leaves the script it points a shell at.</summary>
+    public static string CompletionsRoot { get; } = Path.Combine(TabardRoot, "completions");
+
     /// <summary>The config root Claude Code uses when CLAUDE_CONFIG_DIR is unset.</summary>
     public static string ClaudeDir { get; } = Path.Combine(Home, ".claude");
 
@@ -32,4 +35,13 @@ internal static class Paths
     /// so tabard tracks it separately. See README for the caveat.
     /// </summary>
     public static string ClaudeJson { get; } = Path.Combine(Home, ".claude.json");
+
+    /// <summary>
+    /// A path as someone would type it. A message about ~/.bashrc reads better than one about
+    /// /Users/you/.bashrc, and both shells take the short form back.
+    /// </summary>
+    public static string Pretty(string path) =>
+        Home.Length > 0 && path.StartsWith(Home, StringComparison.Ordinal)
+            ? $"~{path[Home.Length..]}"
+            : path;
 }
