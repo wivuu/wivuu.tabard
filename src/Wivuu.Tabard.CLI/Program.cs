@@ -449,6 +449,7 @@ internal static class Cli
             Picker keys:
               up/down or j/k   move
               enter            launch the highlighted profile
+              r                rename the highlighted profile (enter saves, esc cancels)
               x then x         delete the highlighted profile
               esc or q         quit
 

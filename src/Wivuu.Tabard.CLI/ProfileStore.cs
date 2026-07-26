@@ -5,6 +5,8 @@ internal sealed record MigrationResult(bool Adopted, IReadOnlyList<string> Warni
     public static MigrationResult None { get; } = new(false, []);
 }
 
+internal sealed record RenameResult(Profile Profile, IReadOnlyList<string> Warnings);
+
 internal static class ProfileStore
 {
     public const string DefaultProfileName = "default";
@@ -173,6 +175,80 @@ internal static class ProfileStore
         Harden(dir);
 
         return new Profile { Name = name, Dir = dir };
+    }
+
+    /// <summary>
+    /// Renames a profile by moving its directory. The links are repointed only when they named this
+    /// profile, because the path recorded in them stops existing here - anything else is another
+    /// profile's link and none of our business. A profile another 'claude' has open should not be
+    /// renamed: Windows refuses the move outright, and elsewhere that session is left resolving a
+    /// path that is gone.
+    /// </summary>
+    public static RenameResult Rename(Profile profile, string newName)
+    {
+        ValidateName(newName);
+
+        if (string.Equals(profile.Name, newName, StringComparison.Ordinal))
+            return new RenameResult(profile, []);
+
+        // Same rule as Create - two names differing only in case must not coexist - except that
+        // recasing a profile is exactly that comparison against itself, and has to be allowed.
+        if (
+            List()
+                .FirstOrDefault(p =>
+                    !string.Equals(p.Name, profile.Name, StringComparison.Ordinal)
+                    && string.Equals(p.Name, newName, StringComparison.OrdinalIgnoreCase)
+                ) is
+            { } clash
+        )
+        {
+            throw new InvalidOperationException($"Profile '{clash.Name}' already exists.");
+        }
+
+        // Read these while the old path is still the one on disk.
+        var linked =
+            Links.PointsAt(Paths.ClaudeDir, profile.Dir)
+            || Links.PointsAt(Paths.ClaudeJson, profile.ClaudeJsonFile);
+
+        var target = Path.Combine(Paths.ProfilesRoot, newName);
+        MoveProfile(profile.Dir, target);
+
+        var renamed = new Profile { Name = newName, Dir = target };
+
+        using var guard = AcquireLock();
+
+        if (string.Equals(LastUsed(), profile.Name, StringComparison.Ordinal))
+            SetLastUsed(newName);
+
+        return new RenameResult(renamed, linked ? Relink(renamed) : []);
+    }
+
+    /// <summary>
+    /// A plain rename, except when only the case changes: on a case-insensitive filesystem the
+    /// destination already exists - it is the source - and Directory.Move refuses. Going via a
+    /// temporary name is the way round that, and the dotted name keeps it out of List() if we die
+    /// half way.
+    /// </summary>
+    private static void MoveProfile(string source, string destination)
+    {
+        if (!string.Equals(source, destination, StringComparison.OrdinalIgnoreCase))
+        {
+            Directory.Move(source, destination);
+            return;
+        }
+
+        var staging = Path.Combine(Paths.ProfilesRoot, $".renaming-{Guid.NewGuid():N}");
+        Directory.Move(source, staging);
+
+        try
+        {
+            Directory.Move(staging, destination);
+        }
+        catch
+        {
+            Directory.Move(staging, source); // Put it back rather than leave it invisible.
+            throw;
+        }
     }
 
     /// <summary>
