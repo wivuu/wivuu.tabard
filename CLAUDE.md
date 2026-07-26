@@ -21,7 +21,8 @@ Neither `global.json` (SDK pin) nor `Directory.Packages.props` (TUnit) is the pr
 # 1. bump <Version> in the csproj, PR it, merge it
 # 2. tag the merge commit
 git tag v0.2.0 && git push origin v0.2.0
-# 3. CI pushes a packaging commit back to master - pull before doing more work
+# 3. CI opens a `formula/vX.Y.Z` PR that auto-merges once its checks pass
+#    - pull once it lands before doing more work
 git pull
 ```
 
@@ -34,7 +35,13 @@ Homebrew and winget users are only ever offered a stable version.
 
 The `packaging` job owns the version inside `Formula/tabard.rb` — and inside
 `manifests/w/Wivuu/Tabard/` once winget lands. After each stable release it rewrites the version,
-URLs and checksums from the release's own `SHA256SUMS.txt` and commits the result to master.
+URLs and checksums from the release's own `SHA256SUMS.txt` and opens a `formula/vX.Y.Z` PR that
+merges itself once CI is green.
+
+The bump cannot be pushed straight to master: the `prs` ruleset requires a pull request, and its
+bypass list cannot name the Actions bot (GitHub only accepts roles, teams, deploy keys and
+installed Apps there). The same ruleset is why the job dispatches `ci.yml` on the branch by hand —
+a `GITHUB_TOKEN` push starts no workflow run, so the required checks would otherwise never report.
 
 Editing those by hand is at best redundant and at worst wrong: the checksums have to match binaries
 that do not exist until the release job has built them. If a version is wrong there, fix the job,
