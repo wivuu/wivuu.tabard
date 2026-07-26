@@ -1,3 +1,4 @@
+using System.Globalization;
 using Wivuu.Tabard.Cli;
 
 try
@@ -30,6 +31,8 @@ internal static class Cli
             "rm" or "remove" => Remove(args[1..]),
             "use" => Use(args[1..]),
             "openrouter" or "or" => OpenRouterCommand(args[1..]),
+            "completion" or "completions" => CompletionCommand(args[1..]),
+            "__complete" => Complete(args[1..]),
             _ => Default(args),
         };
     }
@@ -397,6 +400,112 @@ internal static class Cli
         return 0;
     }
 
+    private static int CompletionCommand(string[] args)
+    {
+        if (args.Length == 0 || args[0] is "help" or "--help" or "-h")
+            return CompletionHelp();
+
+        if (args[0] == "install")
+            return InstallCompletion(args[1..]);
+
+        Console.WriteLine(Completions.Script(args[0]));
+        return 0;
+    }
+
+    /// <summary>
+    /// Everything here goes to stderr. The script itself is what 'tabard completion &lt;shell&gt;'
+    /// puts on stdout, and someone who pipes this command somewhere should get nothing.
+    /// </summary>
+    private static int InstallCompletion(string[] args)
+    {
+        if (args.Length == 1 && args[0] is "help" or "--help" or "-h")
+            return CompletionHelp();
+
+        if (args.Length > 1)
+            throw new ArgumentException(
+                $"usage: tabard completion install [{string.Join('|', Completions.Shells)}]"
+            );
+
+        var result = Completions.Install(args.Length == 1 ? args[0] : null);
+        var startup = Paths.Pretty(result.StartupFile);
+
+        Console.Error.WriteLine($"tabard: wrote {Paths.Pretty(result.ScriptFile)}.");
+
+        if (result.Warning is { } problem)
+        {
+            Console.Error.WriteLine(
+                $"tabard: could not add the line to {startup} ({problem}). Add it yourself:"
+            );
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"    {result.LoadLine}");
+            return 1;
+        }
+
+        Console.Error.WriteLine(
+            result.AlreadyLoaded
+                ? $"tabard: {startup} already loads it."
+                : $"tabard: added a line to {startup} to load it."
+        );
+
+        // The running shell read its startup file long before this command existed.
+        Console.Error.WriteLine(
+            result.Shell is "bash" or "zsh"
+                ? $"tabard: open a new shell, or run 'source {startup}' to use it now."
+                : $"tabard: open a new shell, or run '. {startup}' to use it now."
+        );
+
+        return 0;
+    }
+
+    /// <summary>
+    /// The hook the installed scripts call - '__complete &lt;cursor index&gt; &lt;words...&gt;',
+    /// answered one candidate per line. Undocumented because it is a protocol rather than a
+    /// command, and silent about everything: a completer that writes anything else to stdout
+    /// corrupts what the shell is about to insert.
+    /// </summary>
+    private static int Complete(string[] args)
+    {
+        if (args.Length == 0 || !int.TryParse(args[0], CultureInfo.InvariantCulture, out var cword))
+            return 0;
+
+        foreach (var candidate in Completions.Suggest(args[1..], cword))
+            Console.WriteLine(candidate);
+
+        return 0;
+    }
+
+    private static int CompletionHelp()
+    {
+        Console.WriteLine(
+            """
+            tabard completion - tab completion for profiles, commands and flags
+
+            Usage:
+              tabard completion install [shell]   Install it and load it from your startup file
+              tabard completion bash              Print the bash script
+              tabard completion zsh               Print the zsh script
+              tabard completion pwsh              Print the PowerShell script
+
+            'install' writes the script to ~/.tabard/completions and adds one line to your
+            ~/.zshrc, ~/.bashrc or PowerShell $PROFILE to load it. It appends nothing twice,
+            so it is safe to run again after an upgrade. With no shell named it uses $SHELL.
+
+            To load it without installing anything, in bash or zsh:
+
+              eval "$(tabard completion zsh)"
+
+            or in PowerShell:
+
+              tabard completion pwsh | Out-String | Invoke-Expression
+
+            Profile names are read on every tab press rather than baked into the script, so a
+            profile you add or rename can be completed without reloading anything.
+            """
+        );
+
+        return 0;
+    }
+
     private static int LaunchInto(Profile profile, IReadOnlyList<string> claudeArgs)
     {
         Point(profile);
@@ -444,6 +553,7 @@ internal static class Cli
               tabard rm <name>            Delete a profile
               tabard ls                   List profiles
               tabard openrouter <cmd>     Configure a profile's OpenRouter settings
+              tabard completion install   Install tab completion for zsh, bash or PowerShell
               tabard -- <claude args>     Force everything through to claude
 
             Picker keys:

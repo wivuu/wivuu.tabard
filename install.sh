@@ -225,4 +225,4 @@ case ":$PATH:" in
 esac
 
 echo
-echo "Run 'tabard --help' to get started."
+echo "Run 'tabard --help' to get started, or 'tabard completion install' for tab completion."

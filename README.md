@@ -58,6 +58,7 @@ tabard ls                    # list profiles — never changes anything
 | `tabard rm <name>` | Delete a profile |
 | `tabard ls` | List profiles |
 | `tabard openrouter <cmd>` | Configure a profile's [OpenRouter settings](#openrouter-profiles) |
+| `tabard completion install` | Install [tab completion](#tab-completion) for zsh, bash or PowerShell |
 | `tabard -- <claude args>` | Force everything through to claude |
 
 `tabard --help` is tabard's help; `tabard -- --help` reaches Claude Code's.
@@ -75,6 +76,36 @@ launches it outright:
 
   up/down move   enter/1-9 launch   o reorder   r rename   x x delete   q quit
 ```
+
+## Tab completion
+
+```sh
+tabard completion install
+```
+
+Tab now completes profile names, subcommands and flags — `tabard use <tab>` offers your profiles,
+`tabard openrouter set work --<tab>` offers the model flags, and the flag after them offers model
+slugs. zsh, bash and PowerShell are covered; the shell is taken from `$SHELL` unless you name one
+(`tabard completion install bash`).
+
+Installing writes the script to `~/.tabard/completions/` and appends one guarded line to your
+`~/.zshrc` (`$ZDOTDIR` is honoured), your `~/.bashrc` — or `~/.bash_profile` on macOS, where a
+terminal starts a login shell — or your PowerShell `$PROFILE`. It only ever appends, never
+rewrites, and adds nothing twice, so it is safe to run again after an upgrade. Open a new shell to
+pick it up.
+
+Homebrew installs the zsh and bash completions itself, so `brew install tabard` needs none of this.
+
+To load it without touching a startup file:
+
+```sh
+eval "$(tabard completion zsh)"                         # zsh
+eval "$(tabard completion bash)"                        # bash
+tabard completion pwsh | Out-String | Invoke-Expression # PowerShell
+```
+
+The script itself holds no list of profiles or commands — every tab press asks `tabard`, so a
+profile you add or rename completes straight away and an upgrade needs no re-install.
 
 ## How it works
 

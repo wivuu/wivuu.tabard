@@ -183,4 +183,4 @@ else {
 }
 
 Write-Host ''
-Write-Host "Run 'tabard --help' to get started."
+Write-Host "Run 'tabard --help' to get started, or 'tabard completion install' for tab completion."

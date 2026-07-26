@@ -7,7 +7,7 @@ internal static class Launcher
     public static int Launch(Profile profile, IReadOnlyList<string> claudeArgs)
     {
         var executable =
-            Resolve()
+            Which("claude")
             ?? throw new FileNotFoundException(
                 "could not find 'claude' on PATH. Install Claude Code first, or put it on PATH."
             );
@@ -56,7 +56,8 @@ internal static class Launcher
         return psi;
     }
 
-    private static string? Resolve()
+    /// <summary>The first working <paramref name="command"/> on PATH, or null.</summary>
+    public static string? Which(string command)
     {
         var pathVar = Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrEmpty(pathVar))
@@ -77,15 +78,15 @@ internal static class Launcher
                 string candidate;
                 try
                 {
-                    candidate = Path.Combine(dir, "claude" + extension);
+                    candidate = Path.Combine(dir, command + extension);
                 }
                 catch
                 {
                     continue; // Malformed PATH entry.
                 }
 
-                // Keep looking rather than returning: a broken or non-executable 'claude' earlier
-                // in PATH must not hide a working one later on.
+                // Keep looking rather than returning: a broken or non-executable copy earlier in
+                // PATH must not hide a working one later on.
                 if (IsExecutable(candidate))
                     return candidate;
             }
