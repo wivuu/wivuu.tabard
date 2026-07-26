@@ -21,6 +21,9 @@ public class PathsTests
             .That(Paths.LastUsedFile)
             .IsEqualTo(Path.Combine(Sandbox.Home, ".tabard", "last"));
         await Assert.That(Paths.LockFile).IsEqualTo(Path.Combine(Sandbox.Home, ".tabard", "lock"));
+        await Assert
+            .That(Paths.OrderFile)
+            .IsEqualTo(Path.Combine(Sandbox.Home, ".tabard", "order"));
     }
 
     [Test]

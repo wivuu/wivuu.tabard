@@ -75,19 +75,37 @@ internal static class Term
         }
     }
 
+    /// <summary>A read <see cref="SwallowSplitEscape"/> started and did not consume. Never more than
+    /// one: it is only ever set on the way out of a probe, and cleared by the next read.</summary>
+    private static Task<ConsoleKeyInfo>? _probe;
+
+    /// <summary>The one door for keystrokes, so a key an escape probe took is still the next key the
+    /// caller sees rather than one nobody ever gets.</summary>
+    public static ConsoleKeyInfo ReadKey()
+    {
+        if (_probe is not { } pending)
+            return Console.ReadKey(intercept: true);
+
+        _probe = null;
+        return pending.GetAwaiter().GetResult();
+    }
+
     /// <summary>
     /// An arrow key that arrives split across two reads surfaces as a bare Escape with the rest of
     /// the sequence behind it, and quitting on that loses the user's keypress. Console.KeyAvailable
     /// is no help - it stays false because the remainder is already buffered inside the reader - so
     /// the only way to tell is a timed read: an introducer arriving within a few dozen milliseconds
-    /// was not typed by a human. On a real Escape that read is still outstanding when we return,
-    /// which is safe only because escaping abandons the command rather than reading another key.
+    /// was not typed by a human. Anything else the probe took - or is still waiting to take - is a
+    /// keypress in its own right and is handed to the next <see cref="ReadKey"/>.
     /// </summary>
     public static bool SwallowSplitEscape()
     {
         var probe = Task.Run(() => Console.ReadKey(intercept: true));
         if (!probe.Wait(TimeSpan.FromMilliseconds(50)) || probe.Result.KeyChar is not ('[' or 'O'))
+        {
+            _probe = probe;
             return false;
+        }
 
         while (Console.KeyAvailable)
             Console.ReadKey(intercept: true);

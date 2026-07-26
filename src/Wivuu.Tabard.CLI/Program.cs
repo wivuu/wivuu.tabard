@@ -448,9 +448,14 @@ internal static class Cli
 
             Picker keys:
               up/down or j/k   move
+              1-9              launch that profile
               enter            launch the highlighted profile
+              o                reorder (up/down move it, o or enter done)
+              r                rename the highlighted profile (enter saves, esc cancels)
               x then x         delete the highlighted profile
               esc or q         quit
+
+            The picker keeps the order you put profiles in; it is saved in ~/.tabard/order.
 
             Profiles live in ~/.tabard/profiles/<name> and are passed to Claude Code
             as CLAUDE_CONFIG_DIR, so each one keeps its own login, settings and history.

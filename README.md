@@ -7,6 +7,18 @@ A Claude Code profile switcher. Launch `claude` through `tabard` and pick which 
 
 ## Install
 
+**macOS / Linux** — one line, no package manager:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.sh | sh
+```
+
+**Windows** — one line in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.ps1 | iex
+```
+
 **macOS / Linux** — Homebrew, from this repo's own tap:
 
 ```sh
@@ -26,10 +38,14 @@ winget install Wivuu.Tabard
 dotnet tool install -g Wivuu.Tabard
 ```
 
-Homebrew and winget both install the native binary, so they need no .NET runtime. The .NET tool is
-portable IL: it needs the .NET 10 runtime (or newer) and lands in `~/.dotnet/tools`, which has to be
-on your PATH. The package id is `Wivuu.Tabard` either way; the command is always plain `tabard`.
-For a raw binary or a build from source, see [other ways to install](#other-ways-to-install).
+The scripts, Homebrew and winget all install the same native binary, so none of them need a .NET
+runtime; the scripts land it in `~/.local/bin` (`%LOCALAPPDATA%\Programs\tabard` on Windows, which
+they add to your user PATH) after checking it against the release's own `SHA256SUMS.txt`. Re-run the
+same line to upgrade — it installs over the copy already on your PATH, or tells you to use `brew` or
+`dotnet tool` if one of those owns it. The .NET tool is portable IL instead: it needs the .NET 10
+runtime (or newer) and lands in `~/.dotnet/tools`, which has to be on your PATH. The package id is
+`Wivuu.Tabard` either way; the command is always plain `tabard`. For a raw binary or a build from
+source, see [other ways to install](#other-ways-to-install).
 
 ## Usage
 
@@ -54,15 +70,16 @@ tabard ls                    # list profiles — never changes anything
 
 **First run** adopts your existing login, so there is nothing to set up: `~/.claude` is moved to
 `~/.tabard/profiles/default` and linked back. With one profile there is no picker — `tabard` goes
-straight to `claude`. With more than one you get an arrow-key picker:
+straight to `claude`. With more than one you get a picker, where the number beside a profile
+launches it outright:
 
 ```
   Select a Claude profile
 
-  > work              erik@example.com  -  max  -  valid 7h
-    personal          erik@gmail.com    -  pro  -  refresh due
+  1 > work              erik@example.com  -  max  -  valid 7h
+  2   personal          erik@gmail.com    -  pro  -  refresh due
 
-  up/down move   enter launch   x x delete   esc quit
+  up/down move   enter/1-9 launch   o reorder   r rename   x x delete   q quit
 ```
 
 ## How it works
@@ -81,8 +98,11 @@ under `~/.tabard/profiles/<name>`, and switching means setting `CLAUDE_CONFIG_DI
 - **Concurrent sessions work.** Two terminals, two profiles, no clobbering.
 
 Profiles are discovered by listing directories, so the set of profiles can't drift out of sync
-with what's actually on disk. The only state file is `~/.tabard/last`, which records your last
-choice so a bare `claude` can follow it; deleting it is harmless.
+with what's actually on disk. There are two state files: `~/.tabard/last`, which records your
+last choice so a bare `claude` can follow it, and `~/.tabard/order`, one profile name per line,
+which records the order you arranged the picker in. Both are hints over that directory listing —
+neither can conjure a profile that isn't there or hide one that is, so a name either file holds
+for a profile that has gone is simply ignored. Deleting either is harmless.
 
 ## Behaviour
 
@@ -90,7 +110,18 @@ First run *moves* `~/.claude` to `~/.tabard/profiles/default` and links `~/.clau
 Moving rather than copying keeps tokens and expiry intact with no second copy to go stale.
 `~/.claude.json` gets the same treatment.
 
-In the picker, `x` arms the highlighted row, a second `x` deletes it. Any other key disarms. If the window is
+The picker keeps the order you put profiles in rather than floating whatever you launched last to
+the top, so the frame is the same every run — same rows, same numbers, same cursor on row one.
+Pressing `1`-`9` launches that profile in one keystroke. `o` enters reorder mode, where up/down
+carry the highlighted profile instead of the cursor and `o` or `enter` are done; the new order is
+saved as you go, so there is nothing to confirm and nothing to undo — move it back. A profile
+created since you last arranged things, or created behind tabard's back, appears at the bottom
+rather than pushing an arranged one down. Rows past the ninth get no number.
+
+In the picker, `x` arms the highlighted row, a second `x` deletes it. Any other key disarms. `r` turns the
+highlighted row into a text field holding its current name — `enter` renames the profile's directory, `esc`
+leaves it alone, and a name that is already taken or would not travel is reported without leaving the field.
+If the window is
 too short for every profile the list scrolls and the help line says how many are off-screen; if
 it is too short for a frame at all (under seven rows), tabard prints the list and asks you to use
 `tabard use <name>` rather than draw something you can't read.
@@ -182,11 +213,29 @@ why `dotnet tool install -g Wivuu.Tabard` gives you a plain `tabard`.
 To upgrade or remove what you installed above:
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.sh | sh  # upgrade
+rm ~/.local/bin/tabard                                                                 # remove
 brew upgrade tabard          ;  brew uninstall tabard
 winget upgrade Wivuu.Tabard  ;  winget uninstall Wivuu.Tabard
 dotnet tool update -g Wivuu.Tabard
 dotnet tool uninstall -g Wivuu.Tabard
 ```
+
+The install scripts take a few options, though `curl | sh` and `irm | iex` both need help passing
+them — `sh -s --` for the former, an explicit script block for the latter:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.sh | sh -s -- --dir ~/bin
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/wivuu/wivuu.tabard/master/install.ps1))) -InstallDir C:\bin
+```
+
+`--version`/`-Version` pins a release instead of taking the latest, `--dir`/`-InstallDir` picks the
+directory, `--force`/`-Force` installs even when Homebrew or `dotnet tool` owns the `tabard` already
+on your PATH, and `-NoPath` leaves the Windows user PATH alone. Each has an environment variable
+equivalent (`TABARD_VERSION`, `TABARD_INSTALL_DIR`, `TABARD_FORCE`) for the piped forms.
 
 For no runtime dependency and no package manager, grab a native binary for your platform from
 the [latest release](https://github.com/wivuu/wivuu.tabard/releases/latest) — `linux-x64`,
