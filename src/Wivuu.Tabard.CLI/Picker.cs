@@ -8,7 +8,11 @@ internal static class Picker
     private const int NameWidth = 18;
 
     private const int HeaderLines = 2; // rows start below the title and its blank line
-    private const int NameColumn = 3; // ' ' + marker + ' '
+    private const int NameColumn = 5; // ' ' + slot + ' ' + marker + ' '
+
+    /// <summary>How many rows get a digit to launch them. Ten would need '0', which reads as a
+    /// zeroth row rather than a tenth.</summary>
+    private const int Slots = 9;
 
     /// <summary>Returns the chosen profile, or null if the user quit or deleted everything.</summary>
     public static Profile? Show(List<Profile> profiles)
@@ -34,6 +38,7 @@ internal static class Picker
         var index = 0;
         var offset = 0;
         var armed = -1;
+        var reordering = false; // True while up/down moves the profile instead of the cursor.
         StringBuilder? draft = null; // The name being typed, or null when not renaming.
         string? status = null;
         var notes = new List<string>();
@@ -45,6 +50,23 @@ internal static class Picker
                 Console.Error.WriteLine($"tabard: {note}");
 
             return chosen;
+        }
+
+        // Written after every move rather than on the way out of the mode, so a ^C - or a terminal
+        // that goes away - cannot lose an arrangement the user has already watched happen.
+        string? Save()
+        {
+            try
+            {
+                using var guard = ProfileStore.AcquireLock();
+                ProfileStore.SetOrder(profiles.Select(p => p.Name));
+                return null;
+            }
+            catch (Exception ex)
+            {
+                notes.Add($"could not save the profile order: {ex.Message}");
+                return "could not save the order - see below";
+            }
         }
 
         // The finally below cannot run if ^C terminates us, so restore the cursor from the
@@ -65,6 +87,7 @@ internal static class Picker
                     offset,
                     rows,
                     armed,
+                    reordering,
                     draft?.ToString(),
                     status,
                     top,
@@ -142,6 +165,55 @@ internal static class Picker
                     continue;
                 }
 
+                // Modal for the same reason the rename field is: while up/down carries the
+                // highlighted profile, it cannot also move the cursor, and nothing else here
+                // makes sense half way through rearranging the list.
+                if (reordering)
+                {
+                    switch (key.Key)
+                    {
+                        case ConsoleKey.UpArrow or ConsoleKey.K:
+                            index = MoveTo(profiles, index, index - 1);
+                            status = Save();
+                            break;
+
+                        case ConsoleKey.DownArrow
+                        or ConsoleKey.J:
+                            index = MoveTo(profiles, index, index + 1);
+                            status = Save();
+                            break;
+
+                        case ConsoleKey.Escape:
+                            if (Term.SwallowSplitEscape())
+                                break;
+
+                            reordering = false;
+                            break;
+
+                        case ConsoleKey.Enter
+                        or ConsoleKey.O
+                        or ConsoleKey.Q:
+                            reordering = false;
+                            break;
+                    }
+
+                    continue;
+                }
+
+                // A digit launches, so it is handled ahead of the switch rather than as a case
+                // that has to be kept out of the disarm rule. KeyChar rather than ConsoleKey.D1
+                // covers the number row and the keypad without depending on the terminal's
+                // mapping of either, and shift+1 is '!' so there is no false positive.
+                if (!control && key.KeyChar is >= '1' and <= '9')
+                {
+                    var slot = key.KeyChar - '1';
+                    if (slot < profiles.Count)
+                        return Leave(profiles[slot]);
+
+                    armed = -1; // Past the end of the list - the 'any other key disarms' rule holds.
+                    continue;
+                }
+
                 switch (key.Key)
                 {
                     case ConsoleKey.UpArrow or ConsoleKey.K:
@@ -165,6 +237,17 @@ internal static class Picker
 
                         // Seeded with the current name, so a small correction is a small edit.
                         draft = new StringBuilder(profiles[index].Name);
+                        armed = -1;
+                        break;
+
+                    case ConsoleKey.O:
+                        // A mode with nothing to move in it is worse than no mode. Reachable
+                        // even though the picker needs two profiles to open: a delete can leave
+                        // one behind mid-session.
+                        if (profiles.Count < 2)
+                            break;
+
+                        reordering = true;
                         armed = -1;
                         break;
 
@@ -227,6 +310,30 @@ internal static class Picker
         }
     }
 
+    /// <summary>
+    /// The launch key printed beside a row, or blanks past the ninth - there is no key for those.
+    /// The absolute position, not the visible one: a number that changed as the list scrolled
+    /// would be worse than no number, because the whole point of it is muscle memory.
+    /// </summary>
+    internal static string Gutter(int index) => index < Slots ? $"{index + 1} " : "  ";
+
+    /// <summary>
+    /// Moves an item to another position and returns where it ended up. Clamped rather than
+    /// wrapped: the cursor wraps because that is free, but rotating the list by one renumbers
+    /// every row, which is exactly what the numbers exist not to do.
+    /// </summary>
+    internal static int MoveTo<T>(IList<T> items, int from, int to)
+    {
+        to = Math.Clamp(to, 0, items.Count - 1);
+        if (to == from)
+            return from;
+
+        var item = items[from];
+        items.RemoveAt(from);
+        items.Insert(to, item);
+        return to;
+    }
+
     /// <summary>Keeps the selected row inside the visible window.</summary>
     private static int Scroll(int offset, int index, int rows, int count)
     {
@@ -259,6 +366,7 @@ internal static class Picker
         int offset,
         int rows,
         int armed,
+        bool reordering,
         string? draft,
         string? status,
         int top,
@@ -278,29 +386,44 @@ internal static class Picker
             var name = Term.Clip(profile.Name, NameWidth - 1).PadRight(NameWidth);
             var marker = selected ? ">" : " ";
 
+            // Every row form carries the gutter, so a row never shifts sideways on its way into
+            // being renamed or armed - and NameColumn stays the truth for the caret.
+            var gutter = $" {Gutter(i)}{marker} ";
+
             // The field takes the whole row: a name being typed can outgrow the name column, and
             // what the profile currently holds is not what is being edited.
             if (draft is not null && selected)
             {
-                lines.Add(($" {marker} {draft}", ConsoleColor.Yellow));
+                lines.Add(($"{gutter}{draft}", ConsoleColor.Yellow));
                 continue;
             }
 
             if (i == armed)
             {
-                lines.Add(($" {marker} {name}press x again to delete", ConsoleColor.Red));
+                lines.Add(($"{gutter}{name}press x again to delete", ConsoleColor.Red));
                 continue;
             }
 
-            lines.Add(
-                ($" {marker} {name}{profile.Describe()}", selected ? ConsoleColor.Cyan : null)
-            );
+            // Yellow is this frame's 'in progress' colour already, and it is the only thing
+            // standing between pressing 'o' by accident and wondering why the list moved.
+            ConsoleColor? colour = selected
+                ? reordering
+                    ? ConsoleColor.Yellow
+                    : ConsoleColor.Cyan
+                : null;
+
+            lines.Add(($"{gutter}{name}{profile.Describe()}", colour));
         }
 
         var hidden = profiles.Count - rows;
-        var help = draft is null
-            ? "  up/down move   enter launch   r rename   x x delete   esc quit"
-            : "  type a new name   enter save   esc cancel";
+
+        // 'q quit' rather than 'esc quit' buys the two columns that keep this inside an
+        // 80-column window; esc still works, and the frame is no use if the way out is what
+        // gets clipped off the end.
+        var help =
+            draft is not null ? "  type a new name   enter save   esc cancel"
+            : reordering ? "  up/down move the profile   o or enter done"
+            : "  up/down move   enter/1-9 launch   o reorder   r rename   x x delete   q quit";
 
         lines.Add(("", null));
         lines.Add((hidden > 0 ? $"{help}   ({hidden} more)" : help, ConsoleColor.DarkGray));

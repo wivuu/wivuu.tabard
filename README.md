@@ -64,15 +64,16 @@ tabard ls                    # list profiles — never changes anything
 
 **First run** adopts your existing login, so there is nothing to set up: `~/.claude` is moved to
 `~/.tabard/profiles/default` and linked back. With one profile there is no picker — `tabard` goes
-straight to `claude`. With more than one you get an arrow-key picker:
+straight to `claude`. With more than one you get a picker, where the number beside a profile
+launches it outright:
 
 ```
   Select a Claude profile
 
-  > work              erik@example.com  -  max  -  valid 7h
-    personal          erik@gmail.com    -  pro  -  refresh due
+  1 > work              erik@example.com  -  max  -  valid 7h
+  2   personal          erik@gmail.com    -  pro  -  refresh due
 
-  up/down move   enter launch   r rename   x x delete   esc quit
+  up/down move   enter/1-9 launch   o reorder   r rename   x x delete   q quit
 ```
 
 ## How it works
@@ -91,14 +92,25 @@ under `~/.tabard/profiles/<name>`, and switching means setting `CLAUDE_CONFIG_DI
 - **Concurrent sessions work.** Two terminals, two profiles, no clobbering.
 
 Profiles are discovered by listing directories, so the set of profiles can't drift out of sync
-with what's actually on disk. The only state file is `~/.tabard/last`, which records your last
-choice so a bare `claude` can follow it; deleting it is harmless.
+with what's actually on disk. There are two state files: `~/.tabard/last`, which records your
+last choice so a bare `claude` can follow it, and `~/.tabard/order`, one profile name per line,
+which records the order you arranged the picker in. Both are hints over that directory listing —
+neither can conjure a profile that isn't there or hide one that is, so a name either file holds
+for a profile that has gone is simply ignored. Deleting either is harmless.
 
 ## Behaviour
 
 First run *moves* `~/.claude` to `~/.tabard/profiles/default` and links `~/.claude` back at it.
 Moving rather than copying keeps tokens and expiry intact with no second copy to go stale.
 `~/.claude.json` gets the same treatment.
+
+The picker keeps the order you put profiles in rather than floating whatever you launched last to
+the top, so the frame is the same every run — same rows, same numbers, same cursor on row one.
+Pressing `1`-`9` launches that profile in one keystroke. `o` enters reorder mode, where up/down
+carry the highlighted profile instead of the cursor and `o` or `enter` are done; the new order is
+saved as you go, so there is nothing to confirm and nothing to undo — move it back. A profile
+created since you last arranged things, or created behind tabard's back, appears at the bottom
+rather than pushing an arranged one down. Rows past the ninth get no number.
 
 In the picker, `x` arms the highlighted row, a second `x` deletes it. Any other key disarms. `r` turns the
 highlighted row into a text field holding its current name — `enter` renames the profile's directory, `esc`

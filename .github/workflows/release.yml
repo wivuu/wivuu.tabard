@@ -193,7 +193,7 @@ jobs:
             --skip-duplicate
 
   ## The Homebrew formula points at assets the release job has already published, so this runs
-  ## after it and commits the bumped formula back to master. Prereleases are skipped on purpose -
+  ## after it and opens a PR bumping the formula. Prereleases are skipped on purpose -
   ## brew users should only ever be offered a stable version.
   packaging:
     runs-on: ubuntu-latest
@@ -201,7 +201,9 @@ jobs:
     needs: [version, release]
     if: needs.version.outputs.prerelease == 'false'
     permissions:
-      contents: write # commits the bumped formula back to master
+      contents: write # pushes the formula branch
+      pull-requests: write # opens the bump PR and turns on auto-merge
+      actions: write # dispatches CI on the branch, see the Open PR step
     env:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
@@ -232,7 +234,9 @@ jobs:
               { echo "::error::formula sha256 for $rid did not update"; exit 1; }
           done
 
-      - name: Commit
+      ## master takes changes through a pull request only - a direct push from here is
+      ## rejected with GH013 - so the bump goes through one like any other change.
+      - name: Open formula PR
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -240,7 +244,25 @@ jobs:
           ## A re-run of an already-packaged version has nothing to commit, which is fine.
           if git diff --cached --quiet; then
             echo "formula already at $VERSION"
-          else
-            git commit -m "chore: point homebrew formula at v$VERSION"
-            git push origin HEAD:master
+            exit 0
           fi
+
+          branch="formula/v$VERSION"
+          git commit -m "chore: point homebrew formula at v$VERSION"
+          ## Force so a re-run after a failure reuses the branch instead of dying on it.
+          git push --force origin "HEAD:refs/heads/$branch"
+
+          ## Nothing pushed with the GITHUB_TOKEN starts a workflow run, so CI would never
+          ## report and the required checks would sit pending forever. workflow_dispatch is
+          ## the documented exception, and the run it starts reports against this branch's
+          ## head commit - which is the commit the PR rules are evaluated on.
+          gh workflow run ci.yml --ref "$branch"
+
+          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --base master --head "$branch" \
+              --title "chore: point homebrew formula at v$VERSION" \
+              --body "Formula bumped to v$VERSION from that release's own SHA256SUMS.txt by the release workflow."
+          fi
+
+          ## Merges itself once the dispatched CI run goes green; nothing here waits on it.
+          gh pr merge "$branch" --squash --auto --delete-branch
