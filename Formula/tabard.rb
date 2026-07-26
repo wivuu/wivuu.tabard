@@ -10,30 +10,30 @@
 class Tabard < Formula
   desc "Claude Code profile switcher - one login per profile, picked at launch"
   homepage "https://github.com/wivuu/wivuu.tabard"
-  version "0.1.1"
+  version "0.2.0"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/wivuu/wivuu.tabard/releases/download/v0.1.1/tabard-0.1.1-osx-arm64.tar.gz"
-      sha256 "7cf68f67b91ce81a5adeb5c75bb623db98179a3def90d82c904f573c940e3f84" # osx-arm64
+      url "https://github.com/wivuu/wivuu.tabard/releases/download/v0.2.0/tabard-0.2.0-osx-arm64.tar.gz"
+      sha256 "0bed012d1d435caf6a7c3bbb0bc1529e603f07e0893bb678bc9ca3eb5e64b2f4" # osx-arm64
     end
 
     on_intel do
-      url "https://github.com/wivuu/wivuu.tabard/releases/download/v0.1.1/tabard-0.1.1-osx-x64.tar.gz"
-      sha256 "17cd66d85b757e409c3cb427e11e673213a559aa3bf2ed794f82d7aebe3b2698" # osx-x64
+      url "https://github.com/wivuu/wivuu.tabard/releases/download/v0.2.0/tabard-0.2.0-osx-x64.tar.gz"
+      sha256 "a811000f1b89b2e16196dcbaddd23c5464267af046e9f2c6b55c8ec668122a8a" # osx-x64
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/wivuu/wivuu.tabard/releases/download/v0.1.1/tabard-0.1.1-linux-arm64.tar.gz"
-      sha256 "de14e93bae29d1dd0a9a885a4d1b1751b05e40fa871d9e24a030a6dc3f214e7f" # linux-arm64
+      url "https://github.com/wivuu/wivuu.tabard/releases/download/v0.2.0/tabard-0.2.0-linux-arm64.tar.gz"
+      sha256 "f1491cb73248d9a5c5fbe54d5355a8e0d98f92b4f0e4b64a82b2675a93dc799d" # linux-arm64
     end
 
     on_intel do
-      url "https://github.com/wivuu/wivuu.tabard/releases/download/v0.1.1/tabard-0.1.1-linux-x64.tar.gz"
-      sha256 "121b48e9a626af3dd4131504d913c0852f67290a4b7e975d405309efcd5f459a" # linux-x64
+      url "https://github.com/wivuu/wivuu.tabard/releases/download/v0.2.0/tabard-0.2.0-linux-x64.tar.gz"
+      sha256 "600cd5a9352da8ec768fbefb94e1403565a31b289ece53a6e23b6bbf9561fc5e" # linux-x64
     end
   end
 
