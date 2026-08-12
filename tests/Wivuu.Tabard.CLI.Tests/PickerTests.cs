@@ -1,11 +1,48 @@
 namespace Wivuu.Tabard.Cli.Tests;
 
 /// <summary>
-/// Only the two pure helpers. The rest of the picker is a render loop against a real console, so
+/// Only the pure helpers. The rest of the picker is a render loop against a real console, so
 /// these are the parts that can be wrong without anyone noticing until they are on screen.
 /// </summary>
 public class PickerTests
 {
+    /// <summary>'tabard switch' opens the same picker, and enter must not offer to launch.</summary>
+    [Test]
+    [Arguments(false, "launch")]
+    [Arguments(true, "switch")]
+    public async Task Help_names_what_enter_is_about_to_do(bool switching, string verb)
+    {
+        var help = Help(switching);
+
+        // The legend has to fit an 80-column window, which is why the two verbs are the same width.
+        await Assert.That(help).Contains($"enter/1-9 {verb}");
+        await Assert.That(help.Length).IsLessThanOrEqualTo(80);
+    }
+
+    /// <summary>Reordering and renaming are about the row, not about what picking it would do.
+    /// </summary>
+    [Test]
+    [Arguments(true, false, "o or enter done")]
+    [Arguments(false, true, "enter save")]
+    public async Task Help_forgets_the_action_in_the_other_modes(
+        bool reordering,
+        bool renaming,
+        string expected
+    )
+    {
+        var launch = Picker.Help(PickerAction.Launch, reordering, renaming);
+        var switching = Picker.Help(PickerAction.Switch, reordering, renaming);
+
+        await Assert.That(launch).Contains(expected).And.IsEqualTo(switching);
+    }
+
+    private static string Help(bool switching) =>
+        Picker.Help(
+            switching ? PickerAction.Switch : PickerAction.Launch,
+            reordering: false,
+            renaming: false
+        );
+
     [Test]
     [Arguments(0, "1 ")]
     [Arguments(8, "9 ")]

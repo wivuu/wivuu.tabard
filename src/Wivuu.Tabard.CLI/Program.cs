@@ -30,12 +30,15 @@ internal static class Cli
             "add" or "new" => Add(args[1..]),
             "rm" or "remove" => Remove(args[1..]),
             "use" => Use(args[1..]),
+            "switch" or "sw" => Switch(args[1..]),
             "openrouter" or "or" => OpenRouterCommand(args[1..]),
             "completion" or "completions" => CompletionCommand(args[1..]),
             "__complete" => Complete(args[1..]),
             _ => Default(args),
         };
     }
+
+    private const string SwitchUsage = "usage: tabard switch [name]";
 
     private const string AddUsage =
         "usage: tabard add <name> [--openrouter] [--model <slug>] "
@@ -78,6 +81,61 @@ internal static class Cli
             rest = rest[1..];
 
         return LaunchInto(profile, rest);
+    }
+
+    /// <summary>
+    /// The first half of a launch on its own: record the choice and repoint ~/.claude, then stop.
+    /// Plenty of things run 'claude' without going through tabard - an editor's terminal, a shell
+    /// alias, a script - and pointing those at another profile should not need a session started
+    /// and quit to do it.
+    /// </summary>
+    private static int Switch(string[] args)
+    {
+        if (args.Length > 1)
+            throw new ArgumentException($"unexpected argument '{args[1]}'. {SwitchUsage}");
+
+        // Otherwise a typo'd flag would be looked up as a profile name and reported as a missing one.
+        if (args.Length == 1 && args[0].StartsWith('-'))
+            throw new ArgumentException($"unknown option '{args[0]}'. {SwitchUsage}");
+
+        // As in 'use': this is a decision, and an existing ~/.claude would be stranded outside the
+        // store by the relink that follows.
+        Adopt();
+
+        var profile = args.Length == 1 ? Require(args[0]) : Choose();
+        if (profile is null)
+            return 130;
+
+        var warnings = Point(profile);
+        foreach (var warning in warnings)
+            Console.Error.WriteLine($"tabard: {warning}");
+
+        // A warning here means the link was left alone, so the stronger claim would contradict the
+        // line above it. The choice was still recorded, and that much is true either way.
+        Console.Error.WriteLine(
+            warnings.Count == 0
+                ? $"tabard: switched to '{profile.Name}' - a bare 'claude' now uses it."
+                : $"tabard: recorded '{profile.Name}' as the current profile."
+        );
+
+        return 0;
+    }
+
+    /// <summary>
+    /// The profile to switch to when none was named. Creates nothing: 'switch' moves a pointer,
+    /// and making the first profile is what 'tabard add' and a bare 'tabard' are for.
+    /// </summary>
+    private static Profile? Choose()
+    {
+        var profiles = ProfileStore.List();
+
+        return profiles.Count switch
+        {
+            0 => throw new InvalidOperationException("no profiles yet. Run 'tabard add <name>'."),
+            // Nothing to choose between, and it still repairs links that have drifted.
+            1 => profiles[0],
+            _ => Picker.Show(profiles, PickerAction.Switch),
+        };
     }
 
     private static int Add(string[] args)
@@ -508,21 +566,24 @@ internal static class Cli
 
     private static int LaunchInto(Profile profile, IReadOnlyList<string> claudeArgs)
     {
-        Point(profile);
+        foreach (var warning in Point(profile))
+            Console.Error.WriteLine($"tabard: {warning}");
+
         return Launcher.Launch(profile, claudeArgs);
     }
 
     /// <summary>Record the choice and repoint ~/.claude under a lock, so two tabard runs racing
-    /// cannot leave the link and ~/.tabard/last naming different profiles.</summary>
-    private static void Point(Profile profile)
+    /// cannot leave the link and ~/.tabard/last naming different profiles. Returns what could not
+    /// be done, for a caller that is not about to launch and has to word its own result around it.
+    /// </summary>
+    private static IReadOnlyList<string> Point(Profile profile)
     {
         using var guard = ProfileStore.AcquireLock();
 
         ProfileStore.SetLastUsed(profile.Name);
 
         // Keep a bare 'claude' invocation consistent with the last choice made here.
-        foreach (var warning in ProfileStore.Relink(profile))
-            Console.Error.WriteLine($"tabard: {warning}");
+        return ProfileStore.Relink(profile);
     }
 
     private static void Adopt()
@@ -549,6 +610,7 @@ internal static class Cli
             Usage:
               tabard [claude args...]     Pick a profile (or skip the picker if there is only one), then launch
               tabard use <name> [-- ...]  Launch a specific profile
+              tabard switch [name]        Point ~/.claude at a profile without launching
               tabard add <name>           Create a profile, choosing Anthropic or OpenRouter
               tabard rm <name>            Delete a profile
               tabard ls                   List profiles

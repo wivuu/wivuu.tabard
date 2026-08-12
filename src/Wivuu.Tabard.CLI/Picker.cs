@@ -2,6 +2,16 @@ using System.Text;
 
 namespace Wivuu.Tabard.Cli;
 
+/// <summary>
+/// What the caller is going to do with the row that gets picked. The picker only ever chooses;
+/// this is nothing more than what it says it is about to do.
+/// </summary>
+internal enum PickerAction
+{
+    Launch,
+    Switch,
+}
+
 internal static class Picker
 {
     private const int ChromeLines = 5; // header, blank, blank, help, status
@@ -15,16 +25,16 @@ internal static class Picker
     private const int Slots = 9;
 
     /// <summary>Returns the chosen profile, or null if the user quit or deleted everything.</summary>
-    public static Profile? Show(List<Profile> profiles)
+    public static Profile? Show(List<Profile> profiles, PickerAction action = PickerAction.Launch)
     {
         if (!Term.Interactive)
-            return ShowPlain(profiles);
+            return ShowPlain(profiles, action);
 
         // Below this the frame cannot be drawn in place at all: rows would collapse onto the last
         // line and enter would launch an account nobody saw. Listing them is the honest fallback.
         var maxRows = Term.WindowHeight() - ChromeLines - 1;
         if (maxRows < 1)
-            return ShowPlain(profiles);
+            return ShowPlain(profiles, action);
 
         var rows = Math.Min(profiles.Count, maxRows);
         var frameHeight = rows + ChromeLines;
@@ -91,7 +101,8 @@ internal static class Picker
                     draft?.ToString(),
                     status,
                     top,
-                    frameHeight
+                    frameHeight,
+                    action
                 );
 
                 if (draft is null)
@@ -318,6 +329,23 @@ internal static class Picker
     internal static string Gutter(int index) => index < Slots ? $"{index + 1} " : "  ";
 
     /// <summary>
+    /// The key legend under the rows. 'q quit' rather than 'esc quit' buys the two columns that
+    /// keep this inside an 80-column window; esc still works, and the frame is no use if the way
+    /// out is what gets clipped off the end. The two verbs are the same width for that reason too.
+    /// </summary>
+    internal static string Help(PickerAction action, bool reordering, bool renaming)
+    {
+        if (renaming)
+            return "  type a new name   enter save   esc cancel";
+
+        if (reordering)
+            return "  up/down move the profile   o or enter done";
+
+        var verb = action is PickerAction.Switch ? "switch" : "launch";
+        return $"  up/down move   enter/1-9 {verb}   o reorder   r rename   x x delete   q quit";
+    }
+
+    /// <summary>
     /// Moves an item to another position and returns where it ended up. Clamped rather than
     /// wrapped: the cursor wraps because that is free, but rotating the list by one renumbers
     /// every row, which is exactly what the numbers exist not to do.
@@ -370,7 +398,8 @@ internal static class Picker
         string? draft,
         string? status,
         int top,
-        int frameHeight
+        int frameHeight,
+        PickerAction action
     )
     {
         var lines = new List<(string Text, ConsoleColor? Color)>(frameHeight)
@@ -417,13 +446,7 @@ internal static class Picker
 
         var hidden = profiles.Count - rows;
 
-        // 'q quit' rather than 'esc quit' buys the two columns that keep this inside an
-        // 80-column window; esc still works, and the frame is no use if the way out is what
-        // gets clipped off the end.
-        var help =
-            draft is not null ? "  type a new name   enter save   esc cancel"
-            : reordering ? "  up/down move the profile   o or enter done"
-            : "  up/down move   enter/1-9 launch   o reorder   r rename   x x delete   q quit";
+        var help = Help(action, reordering, renaming: draft is not null);
 
         lines.Add(("", null));
         lines.Add((hidden > 0 ? $"{help}   ({hidden} more)" : help, ConsoleColor.DarkGray));
@@ -469,13 +492,18 @@ internal static class Picker
     }
 
     /// <summary>Non-interactive fallback for pipes and CI.</summary>
-    private static Profile? ShowPlain(List<Profile> profiles)
+    private static Profile? ShowPlain(List<Profile> profiles, PickerAction action)
     {
         Console.Error.WriteLine("tabard: profiles available:");
         foreach (var profile in profiles)
             Console.Error.WriteLine($"  {profile.Name}  ({profile.Describe()})");
 
-        Console.Error.WriteLine("tabard: not a terminal - pick one with 'tabard use <name>'.");
+        // Naming the command they actually typed: 'tabard use' would start a session someone who
+        // ran 'tabard switch' is not asking for.
+        var command = action is PickerAction.Switch ? "switch" : "use";
+        Console.Error.WriteLine(
+            $"tabard: not a terminal - pick one with 'tabard {command} <name>'."
+        );
         return null;
     }
 }

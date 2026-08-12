@@ -46,6 +46,31 @@ public class CompletionsTests
             .IsEquivalentTo(new[] { "personal", "work" });
     }
 
+    /// <summary>The alias completes to nothing of its own, but still takes a profile once typed.
+    /// </summary>
+    [Test]
+    public async Task Suggest_offers_profiles_after_switch()
+    {
+        MakeProfiles("work", "personal");
+
+        await Assert.That(Complete("tabard", "sw")).IsEquivalentTo(new[] { "switch" });
+        await Assert
+            .That(Complete("tabard", "switch", ""))
+            .IsEquivalentTo(new[] { "personal", "work" });
+        await Assert
+            .That(Complete("tabard", "sw", ""))
+            .IsEquivalentTo(new[] { "personal", "work" });
+    }
+
+    /// <summary>Unlike 'use', there is nothing to pass through to claude.</summary>
+    [Test]
+    public async Task Suggest_offers_nothing_past_the_name_to_switch_to()
+    {
+        MakeProfiles("work");
+
+        await Assert.That(Complete("tabard", "switch", "work", "")).IsEmpty();
+    }
+
     [Test]
     public async Task Suggest_offers_profiles_after_rm()
     {
