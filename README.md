@@ -46,6 +46,7 @@ source, see [other ways to install](#other-ways-to-install).
 ```sh
 tabard                       # pick a profile, then launch claude
 tabard use work              # launch a specific profile
+tabard switch work           # repoint ~/.claude at a profile, without launching
 tabard add personal          # create a profile (Anthropic or OpenRouter)
 tabard ls                    # list profiles — never changes anything
 ```
@@ -54,6 +55,7 @@ tabard ls                    # list profiles — never changes anything
 | --- | --- |
 | `tabard [claude args...]` | Pick a profile, then launch |
 | `tabard use <name> [-- ...]` | Launch a specific profile |
+| `tabard switch [name]` | Point `~/.claude` at a profile without launching |
 | `tabard add <name>` | Create a profile, choosing Anthropic or OpenRouter |
 | `tabard rm <name>` | Delete a profile |
 | `tabard ls` | List profiles |
@@ -148,12 +150,19 @@ highlighted row into a text field holding its current name — `enter` renames t
 leaves it alone, and a name that is already taken or would not travel is reported without leaving the field.
 If the window is
 too short for every profile the list scrolls and the help line says how many are off-screen; if
-it is too short for a frame at all (under seven rows), tabard prints the list and asks you to use
-`tabard use <name>` rather than draw something you can't read.
+it is too short for a frame at all (under seven rows), tabard prints the list and asks you to name
+one rather than draw something you can't read.
 
 After a launch, `~/.claude` is repointed at whichever profile you chose, so a bare `claude`
 invocation stays consistent with your last choice. `tabard ls` never adopts or repoints anything —
 it is safe to run first just to see what tabard would do.
+
+`tabard switch` is that repointing on its own: it records the choice in `~/.tabard/last`, moves the
+`~/.claude` and `~/.claude.json` links, and exits without starting anything. That's what you want
+when the next `claude` is going to be typed by something other than tabard — an editor's integrated
+terminal, a shell alias, a script. With a name it switches straight to it; without one it opens the
+same picker, where `enter` and `1`-`9` switch instead of launching. It creates nothing, so with no
+profiles yet it tells you to run `tabard add <name>`; with exactly one it just repairs the links.
 
 ## OpenRouter profiles
 

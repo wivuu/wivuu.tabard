@@ -31,6 +31,7 @@ internal static class Completions
     private static readonly string[] Commands =
     [
         "use",
+        "switch",
         "add",
         "rm",
         "ls",
@@ -121,6 +122,8 @@ internal static class Completions
                 2 => ["--"],
                 _ => [],
             },
+            // 'switch' takes a name and nothing else - there is no '--' to pass anything through to.
+            "switch" or "sw" => before.Count == 1 ? Profiles() : [],
             "rm" or "remove" => before.Count == 1 ? Profiles() : [],
             // Not Profiles(): the name being typed here is one that does not exist yet.
             "add" or "new" => AddFlags,
