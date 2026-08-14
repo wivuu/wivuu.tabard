@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: Wivuu.Tabard
+PackageVersion: 0.3.0
+PackageLocale: en-US
+Publisher: Wivuu
+PublisherUrl: https://github.com/wivuu
+PublisherSupportUrl: https://github.com/wivuu/wivuu.tabard/issues
+PackageName: tabard
+PackageUrl: https://github.com/wivuu/wivuu.tabard
+License: MIT
+LicenseUrl: https://github.com/wivuu/wivuu.tabard/blob/master/LICENSE
+Copyright: Copyright (c) Wivuu
+ShortDescription: Claude Code profile switcher - one login per profile, picked at launch
+Description: |-
+  tabard launches Claude Code with CLAUDE_CONFIG_DIR pointed at a per-profile directory, so
+  each profile keeps its own login, settings, project config and history. Credentials are
+  never copied in and out of ~/.claude, so token rotation cannot strand a saved profile and
+  two terminals can run two profiles at once. A profile can hold an Anthropic login or
+  OpenRouter settings written into its own settings.json.
+Moniker: tabard
+Tags:
+  - claude
+  - claude-code
+  - cli
+  - developer-tools
+  - profile
+ReleaseNotesUrl: https://github.com/wivuu/wivuu.tabard/releases/tag/v0.3.0
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
