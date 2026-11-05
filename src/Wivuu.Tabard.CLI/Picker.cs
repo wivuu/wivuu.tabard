@@ -12,8 +12,16 @@ internal enum PickerAction
     Switch,
 }
 
+/// <summary>
+/// What the user did with the picker: chose a profile, asked for a new one, or - with neither set -
+/// left. Creating one is the caller's job, because it asks questions the frame has no room for.
+/// </summary>
+internal sealed record PickerChoice(Profile? Profile = null, bool CreateNew = false);
+
 internal static class Picker
 {
+    private static readonly PickerChoice Quit = new();
+
     private const int ChromeLines = 5; // header, blank, blank, help, status
     private const int NameWidth = 18;
 
@@ -24,8 +32,13 @@ internal static class Picker
     /// zeroth row rather than a tenth.</summary>
     private const int Slots = 9;
 
-    /// <summary>Returns the chosen profile, or null if the user quit or deleted everything.</summary>
-    public static Profile? Show(List<Profile> profiles, PickerAction action = PickerAction.Launch)
+    private const string NewProfileLabel = "+ new profile";
+    private const string NewProfileDetail = "name it, then log in or connect OpenRouter";
+
+    public static PickerChoice Show(
+        List<Profile> profiles,
+        PickerAction action = PickerAction.Launch
+    )
     {
         if (!Term.Interactive)
             return ShowPlain(profiles, action);
@@ -36,7 +49,7 @@ internal static class Picker
         if (maxRows < 1)
             return ShowPlain(profiles, action);
 
-        var rows = Math.Min(profiles.Count, maxRows);
+        var rows = Math.Min(RowCount(profiles.Count, action), maxRows);
         var frameHeight = rows + ChromeLines;
 
         // Reserve the frame up front so the terminal scrolls once, then draw in
@@ -53,13 +66,13 @@ internal static class Picker
         string? status = null;
         var notes = new List<string>();
 
-        Profile? Leave(Profile? chosen)
+        PickerChoice Leave(PickerChoice choice)
         {
             Finish(top, frameHeight);
             foreach (var note in notes)
                 Console.Error.WriteLine($"tabard: {note}");
 
-            return chosen;
+            return choice;
         }
 
         // Written after every move rather than on the way out of the mode, so a ^C - or a terminal
@@ -90,7 +103,9 @@ internal static class Picker
 
             while (true)
             {
-                offset = Scroll(offset, index, rows, profiles.Count);
+                var total = RowCount(profiles.Count, action);
+
+                offset = Scroll(offset, index, rows, total);
                 Render(
                     profiles,
                     index,
@@ -115,7 +130,7 @@ internal static class Picker
                 status = null;
 
                 if (key.Key == ConsoleKey.C && control)
-                    return Leave(null);
+                    return Leave(Quit);
 
                 // Handled before the keys below because while a name is being typed every printable
                 // key is text, including the ones that are commands the rest of the time.
@@ -219,7 +234,7 @@ internal static class Picker
                 {
                     var slot = key.KeyChar - '1';
                     if (slot < profiles.Count)
-                        return Leave(profiles[slot]);
+                        return Leave(new PickerChoice(profiles[slot]));
 
                     armed = -1; // Past the end of the list - the 'any other key disarms' rule holds.
                     continue;
@@ -228,22 +243,26 @@ internal static class Picker
                 switch (key.Key)
                 {
                     case ConsoleKey.UpArrow or ConsoleKey.K:
-                        index =
-                            profiles.Count == 0 ? 0 : (index - 1 + profiles.Count) % profiles.Count;
+                        index = total == 0 ? 0 : (index - 1 + total) % total;
                         armed = -1;
                         break;
 
                     case ConsoleKey.DownArrow
                     or ConsoleKey.J:
-                        index = profiles.Count == 0 ? 0 : (index + 1) % profiles.Count;
+                        index = total == 0 ? 0 : (index + 1) % total;
                         armed = -1;
                         break;
 
                     case ConsoleKey.Enter:
-                        return profiles.Count == 0 ? Leave(null) : Leave(profiles[index]);
+                        if (index < profiles.Count)
+                            return Leave(new PickerChoice(profiles[index]));
+
+                        return Leave(
+                            action is PickerAction.Launch ? new PickerChoice(CreateNew: true) : Quit
+                        );
 
                     case ConsoleKey.R:
-                        if (profiles.Count == 0)
+                        if (index >= profiles.Count)
                             break;
 
                         // Seeded with the current name, so a small correction is a small edit.
@@ -252,10 +271,9 @@ internal static class Picker
                         break;
 
                     case ConsoleKey.O:
-                        // A mode with nothing to move in it is worse than no mode. Reachable
-                        // even though the picker needs two profiles to open: a delete can leave
-                        // one behind mid-session.
-                        if (profiles.Count < 2)
+                        // A mode with nothing to move in it is worse than no mode, and the new
+                        // profile row is not one of the things that can be moved.
+                        if (profiles.Count < 2 || index >= profiles.Count)
                             break;
 
                         reordering = true;
@@ -263,7 +281,7 @@ internal static class Picker
                         break;
 
                     case ConsoleKey.X:
-                        if (profiles.Count == 0)
+                        if (index >= profiles.Count)
                             break;
 
                         if (armed == index)
@@ -282,15 +300,19 @@ internal static class Picker
                             }
 
                             armed = -1;
-                            if (profiles.Count == 0)
+
+                            // Launching can still go on from an empty list, on the new profile row.
+                            if (profiles.Count == 0 && action is not PickerAction.Launch)
                             {
                                 notes.Add(
                                     "no profiles left. Run 'tabard add <name>' to create one."
                                 );
-                                return Leave(null);
+                                return Leave(Quit);
                             }
 
-                            index = Math.Clamp(index, 0, profiles.Count - 1);
+                            // Stays among the profiles: the row after the last one is not a delete
+                            // target, and landing on it would make 'x x x' stop part way.
+                            index = Math.Clamp(index, 0, Math.Max(0, profiles.Count - 1));
                         }
                         else
                         {
@@ -303,10 +325,10 @@ internal static class Picker
                         if (Term.SwallowSplitEscape())
                             break;
 
-                        return Leave(null);
+                        return Leave(Quit);
 
                     case ConsoleKey.Q:
-                        return Leave(null);
+                        return Leave(Quit);
 
                     default:
                         armed = -1;
@@ -329,17 +351,34 @@ internal static class Picker
     internal static string Gutter(int index) => index < Slots ? $"{index + 1} " : "  ";
 
     /// <summary>
+    /// How many rows the cursor can land on. Launching adds '+ new profile' after the profiles;
+    /// switching does not, because 'switch' moves a pointer and creates nothing.
+    /// </summary>
+    internal static int RowCount(int profiles, PickerAction action) =>
+        action is PickerAction.Launch ? profiles + 1 : profiles;
+
+    /// <summary>
     /// The key legend under the rows. 'q quit' rather than 'esc quit' buys the two columns that
     /// keep this inside an 80-column window; esc still works, and the frame is no use if the way
     /// out is what gets clipped off the end. The two verbs are the same width for that reason too.
+    /// That width is also why creating a profile is a row rather than a key of its own.
     /// </summary>
-    internal static string Help(PickerAction action, bool reordering, bool renaming)
+    internal static string Help(
+        PickerAction action,
+        bool reordering,
+        bool renaming,
+        bool onNewRow = false
+    )
     {
         if (renaming)
             return "  type a new name   enter save   esc cancel";
 
         if (reordering)
             return "  up/down move the profile   o or enter done";
+
+        // None of the keys that act on a profile do anything here, so they are not offered.
+        if (onNewRow)
+            return "  up/down move   enter new profile   q quit";
 
         var verb = action is PickerAction.Switch ? "switch" : "launch";
         return $"  up/down move   enter/1-9 {verb}   o reorder   r rename   x x delete   q quit";
@@ -444,9 +483,27 @@ internal static class Picker
             lines.Add(($"{gutter}{name}{profile.Describe()}", colour));
         }
 
-        var hidden = profiles.Count - rows;
+        var total = RowCount(profiles.Count, action);
+        var onNewRow = index >= profiles.Count;
 
-        var help = Help(action, reordering, renaming: draft is not null);
+        // After the profiles, so adding one never renumbers the rows above it. No digit: the numbers
+        // launch profiles, and this does not.
+        if (profiles.Count < total && profiles.Count >= offset && profiles.Count < offset + rows)
+        {
+            var label = NewProfileLabel.PadRight(NameWidth);
+            var marker = onNewRow ? ">" : " ";
+
+            lines.Add(
+                (
+                    $" {Gutter(Slots)}{marker} {label}{NewProfileDetail}",
+                    onNewRow ? ConsoleColor.Cyan : null
+                )
+            );
+        }
+
+        var hidden = total - rows;
+
+        var help = Help(action, reordering, renaming: draft is not null, onNewRow);
 
         lines.Add(("", null));
         lines.Add((hidden > 0 ? $"{help}   ({hidden} more)" : help, ConsoleColor.DarkGray));
@@ -492,8 +549,15 @@ internal static class Picker
     }
 
     /// <summary>Non-interactive fallback for pipes and CI.</summary>
-    private static Profile? ShowPlain(List<Profile> profiles, PickerAction action)
+    private static PickerChoice ShowPlain(List<Profile> profiles, PickerAction action)
     {
+        // Reached in a window too short for the frame, where the new profile row cannot be drawn.
+        if (profiles.Count == 0)
+        {
+            Console.Error.WriteLine("tabard: no profiles yet. Run 'tabard add <name>'.");
+            return Quit;
+        }
+
         Console.Error.WriteLine("tabard: profiles available:");
         foreach (var profile in profiles)
             Console.Error.WriteLine($"  {profile.Name}  ({profile.Describe()})");
@@ -504,6 +568,6 @@ internal static class Picker
         Console.Error.WriteLine(
             $"tabard: not a terminal - pick one with 'tabard {command} <name>'."
         );
-        return null;
+        return Quit;
     }
 }

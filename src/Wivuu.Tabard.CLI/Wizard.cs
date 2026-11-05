@@ -14,6 +14,33 @@ internal static class Wizard
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// The name for a profile being created from the selector, starting from a suggestion so that
+    /// enter is enough. A rejected name stays in the field: it is one to correct, not retype. Null
+    /// if the user escaped.
+    /// </summary>
+    public static string? ChooseName()
+    {
+        var initial = ProfileStore.SuggestName();
+
+        while (true)
+        {
+            if (Prompt.Text("Profile name", initial) is not { } name)
+                return null;
+
+            try
+            {
+                ProfileStore.CheckName(name);
+                return name;
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                Console.Error.WriteLine($"tabard: {ex.Message}");
+                initial = name;
+            }
+        }
+    }
+
     /// <summary>Null if the user escaped.</summary>
     public static Provider? ChooseProvider()
     {

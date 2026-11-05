@@ -30,6 +30,7 @@ internal static class Completions
     /// </summary>
     private static readonly string[] Commands =
     [
+        "select",
         "use",
         "switch",
         "add",
@@ -114,6 +115,8 @@ internal static class Completions
 
         return before[0] switch
         {
+            // Past the '--', the words belong to claude, same as after 'use <name> --'.
+            "select" => before.Count == 1 ? ["--"] : [],
             "use" => before.Count switch
             {
                 1 => Profiles(),

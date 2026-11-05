@@ -27,6 +27,7 @@ internal static class Cli
         {
             "help" or "--help" or "-h" => Help(),
             "ls" or "list" => List(),
+            "select" => Select(args[1..]),
             "add" or "new" => Add(args[1..]),
             "rm" or "remove" => Remove(args[1..]),
             "use" => Use(args[1..]),
@@ -44,28 +45,86 @@ internal static class Cli
         "usage: tabard add <name> [--openrouter] [--model <slug>] "
         + "[--opus|--sonnet|--haiku|--fable|--subagent <slug>] [--key-stdin]";
 
+    /// <summary>
+    /// Back to whatever was last used in this folder. Looked up with Find because the memory is only
+    /// a hint: a profile that has since gone makes this a folder tabard does not know.
+    /// </summary>
     private static int Default(string[] claudeArgs)
     {
         Adopt();
 
+        return DirectoryMemory.Recall() is { } name && ProfileStore.Find(name) is { } remembered
+            ? LaunchInto(remembered, claudeArgs)
+            : SelectAndLaunch(claudeArgs);
+    }
+
+    private static int Select(string[] args)
+    {
+        Adopt();
+
+        return SelectAndLaunch(args is ["--", .. var rest] ? rest : args);
+    }
+
+    private static int SelectAndLaunch(string[] claudeArgs)
+    {
+        if (!Term.Interactive)
+            return LaunchUnattended(claudeArgs);
+
+        while (true)
+        {
+            var choice = Picker.Show(ProfileStore.List());
+
+            if (choice.Profile is { } profile)
+                return LaunchInto(profile, claudeArgs);
+
+            if (!choice.CreateNew)
+                return 130;
+
+            if (NewProfile() is { } created)
+                return LaunchInto(created, claudeArgs);
+
+            // Backed out of creating one, which is not the same as wanting to leave.
+        }
+    }
+
+    /// <summary>
+    /// With no terminal there is nobody to ask, so a pipe or a CI job gets what it has always got:
+    /// the first profile made for it, or the only one there is. More than that really is a choice,
+    /// which the picker's plain fallback turns into a list and the command to run.
+    /// </summary>
+    private static int LaunchUnattended(string[] claudeArgs)
+    {
         var profiles = ProfileStore.List();
 
-        if (profiles.Count == 0)
+        switch (profiles.Count)
         {
-            var created = ProfileStore.Create(ProfileStore.DefaultProfileName);
-            Console.Error.WriteLine(
-                "tabard: created profile 'default' - Claude Code will prompt you to log in."
-            );
-            return LaunchInto(created, claudeArgs);
+            case 0:
+                var created = ProfileStore.Create(ProfileStore.DefaultProfileName);
+                Console.Error.WriteLine(
+                    "tabard: created profile 'default' - Claude Code will prompt you to log in."
+                );
+                return LaunchInto(created, claudeArgs);
+
+            case 1:
+                return LaunchInto(profiles[0], claudeArgs);
+
+            default:
+                Picker.Show(profiles);
+                return 130;
         }
+    }
 
-        // Case 1: exactly one profile, so there is nothing to choose. Go straight through.
-        if (profiles.Count == 1)
-            return LaunchInto(profiles[0], claudeArgs);
+    /// <summary>The selector's '+ new profile' row. Null if the user backed out at any step, in which
+    /// case nothing was created.</summary>
+    private static Profile? NewProfile()
+    {
+        if (Wizard.ChooseName() is not { } name)
+            return null;
 
-        // Case 2: let them pick.
-        var chosen = Picker.Show(profiles);
-        return chosen is null ? 130 : LaunchInto(chosen, claudeArgs);
+        if (Wizard.ChooseProvider() is not { } provider)
+            return null;
+
+        return Provision(new AddOptions { Name = name }, provider);
     }
 
     private static int Use(string[] args)
@@ -134,7 +193,7 @@ internal static class Cli
             0 => throw new InvalidOperationException("no profiles yet. Run 'tabard add <name>'."),
             // Nothing to choose between, and it still repairs links that have drifted.
             1 => profiles[0],
-            _ => Picker.Show(profiles, PickerAction.Switch),
+            _ => Picker.Show(profiles, PickerAction.Switch).Profile,
         };
     }
 
@@ -152,7 +211,12 @@ internal static class Cli
         return provider is { } chosen ? Create(options, chosen) : Cancelled();
     }
 
-    private static int Create(AddOptions options, Provider provider)
+    private static int Create(AddOptions options, Provider provider) =>
+        Provision(options, provider) is { } profile ? LaunchInto(profile, []) : Cancelled();
+
+    /// <summary>Makes the profile and sets it up, ready to launch. Null if the user backed out of
+    /// setup, which leaves nothing behind - see <see cref="Configure"/>.</summary>
+    private static Profile? Provision(AddOptions options, Provider provider)
     {
         // Before Create: once a profile exists there is nothing left to adopt, and an existing
         // ~/.claude would be stranded outside the store forever.
@@ -161,7 +225,7 @@ internal static class Cli
         var profile = ProfileStore.Create(options.Name);
 
         if (provider is Provider.OpenRouter && !Configure(profile, options))
-            return Cancelled();
+            return null;
 
         Console.Error.WriteLine(
             provider is Provider.OpenRouter
@@ -169,7 +233,7 @@ internal static class Cli
                 : $"tabard: created '{profile.Name}'. Launching Claude Code to log in."
         );
 
-        return LaunchInto(profile, []);
+        return profile;
     }
 
     /// <summary>
@@ -569,6 +633,12 @@ internal static class Cli
         foreach (var warning in Point(profile))
             Console.Error.WriteLine($"tabard: {warning}");
 
+        // Not in Point: 'switch' shares that, and starts nothing in this folder. Up front because
+        // Launch blocks for the whole session, and a block rather than 'using var' so the lock is
+        // not held for that long.
+        using (ProfileStore.AcquireLock())
+            DirectoryMemory.Remember(profile.Name);
+
         return Launcher.Launch(profile, claudeArgs);
     }
 
@@ -608,7 +678,8 @@ internal static class Cli
             tabard - Claude Code profile switcher
 
             Usage:
-              tabard [claude args...]     Pick a profile (or skip the picker if there is only one), then launch
+              tabard [claude args...]     Launch the profile last used in this folder, or ask if it is new
+              tabard select [-- ...]      Pick or create a profile, then launch
               tabard use <name> [-- ...]  Launch a specific profile
               tabard switch [name]        Point ~/.claude at a profile without launching
               tabard add <name>           Create a profile, choosing Anthropic or OpenRouter
@@ -621,13 +692,14 @@ internal static class Cli
             Picker keys:
               up/down or j/k   move
               1-9              launch that profile
-              enter            launch the highlighted profile
+              enter            launch the highlighted profile, or create one on '+ new profile'
               o                reorder (up/down move it, o or enter done)
               r                rename the highlighted profile (enter saves, esc cancels)
               x then x         delete the highlighted profile
               esc or q         quit
 
             The picker keeps the order you put profiles in; it is saved in ~/.tabard/order.
+            Each folder's last profile is saved in ~/.tabard/directories.json.
 
             Profiles live in ~/.tabard/profiles/<name> and are passed to Claude Code
             as CLAUDE_CONFIG_DIR, so each one keeps its own login, settings and history.
