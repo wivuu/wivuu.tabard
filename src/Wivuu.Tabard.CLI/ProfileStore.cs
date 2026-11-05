@@ -233,6 +233,21 @@ internal static class ProfileStore
 
     public static Profile Create(string name)
     {
+        CheckName(name);
+
+        var dir = Path.Combine(Paths.ProfilesRoot, name);
+        Directory.CreateDirectory(dir);
+        Harden(dir);
+
+        return new Profile { Name = name, Dir = dir };
+    }
+
+    /// <summary>
+    /// Throws if a new profile could not take this name. On its own so a prompt can reject a name
+    /// while it is still being asked about, rather than after the questions that follow it.
+    /// </summary>
+    public static void CheckName(string name)
+    {
         ValidateName(name);
 
         // Case-insensitive: 'work' and 'Work' can both exist on a case-sensitive filesystem, and
@@ -247,12 +262,22 @@ internal static class ProfileStore
         {
             throw new InvalidOperationException($"Profile '{clash.Name}' already exists.");
         }
+    }
 
-        var dir = Path.Combine(Paths.ProfilesRoot, name);
-        Directory.CreateDirectory(dir);
-        Harden(dir);
+    /// <summary>A name <see cref="CheckName"/> will accept, for a prompt to offer as a starting
+    /// point. Compared the way it compares, or the suggestion could be rejected.</summary>
+    public static string SuggestName()
+    {
+        var taken = List().Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return new Profile { Name = name, Dir = dir };
+        if (!taken.Contains(DefaultProfileName))
+            return DefaultProfileName;
+
+        var number = 2;
+        while (taken.Contains($"profile-{number}"))
+            number++;
+
+        return $"profile-{number}";
     }
 
     /// <summary>
@@ -307,6 +332,8 @@ internal static class ProfileStore
             order[at] = newName;
             TrySetOrder(order);
         }
+
+        DirectoryMemory.RenameProfile(profile.Name, newName);
 
         return new RenameResult(renamed, linked ? Relink(renamed) : []);
     }
@@ -374,6 +401,11 @@ internal static class ProfileStore
         // correctness - but an order file that only ever grows is its own small mess.
         if (Order() is { Count: > 0 } order && order.Remove(profile.Name))
             TrySetOrder(order);
+
+        // A block, closed before the acquire below: the lock is not reentrant, so holding it there
+        // would spend AcquireLock's whole retry budget waiting on ourselves.
+        using (AcquireLock())
+            DirectoryMemory.ForgetProfile(profile.Name);
 
         if (!linkedDir && !linkedJson)
             return [];

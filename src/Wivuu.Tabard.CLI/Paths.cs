@@ -24,6 +24,10 @@ internal static class Paths
     /// truth - the profiles themselves are still just the directories under <see cref="ProfilesRoot"/>.</summary>
     public static string OrderFile { get; } = Path.Combine(TabardRoot, "order");
 
+    /// <summary>Which profile each folder last launched, as a JSON object. Another preference: see
+    /// <see cref="DirectoryMemory"/>.</summary>
+    public static string DirectoriesFile { get; } = Path.Combine(TabardRoot, "directories.json");
+
     /// <summary>Where 'tabard completion install' leaves the script it points a shell at.</summary>
     public static string CompletionsRoot { get; } = Path.Combine(TabardRoot, "completions");
 

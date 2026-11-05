@@ -24,6 +24,9 @@ public class PathsTests
         await Assert
             .That(Paths.OrderFile)
             .IsEqualTo(Path.Combine(Sandbox.Home, ".tabard", "order"));
+        await Assert
+            .That(Paths.DirectoriesFile)
+            .IsEqualTo(Path.Combine(Sandbox.Home, ".tabard", "directories.json"));
     }
 
     [Test]

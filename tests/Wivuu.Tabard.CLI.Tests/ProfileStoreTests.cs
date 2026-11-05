@@ -174,6 +174,55 @@ public class ProfileStoreTests
         await Assert.That(() => ProfileStore.Create("WORK")).Throws<InvalidOperationException>();
     }
 
+    /// <summary>The selector's name prompt relies on this agreeing with what Create will do, and on
+    /// its making nothing while it checks.</summary>
+    [Test]
+    public async Task CheckName_rejects_what_Create_would_and_creates_nothing()
+    {
+        ProfileStore.Create("work");
+
+        ProfileStore.CheckName("personal");
+
+        await Assert.That(() => ProfileStore.CheckName("")).Throws<ArgumentException>();
+        await Assert.That(() => ProfileStore.CheckName("a/b")).Throws<ArgumentException>();
+        await Assert.That(() => ProfileStore.CheckName("WORK")).Throws<InvalidOperationException>();
+        await Assert.That(Names()).IsEqualTo("work");
+    }
+
+    [Test]
+    public async Task SuggestName_starts_from_the_default()
+    {
+        await Assert.That(ProfileStore.SuggestName()).IsEqualTo(ProfileStore.DefaultProfileName);
+
+        ProfileStore.Create("work");
+
+        await Assert.That(ProfileStore.SuggestName()).IsEqualTo(ProfileStore.DefaultProfileName);
+    }
+
+    [Test]
+    public async Task SuggestName_counts_past_what_is_taken()
+    {
+        ProfileStore.Create(ProfileStore.DefaultProfileName);
+        await Assert.That(ProfileStore.SuggestName()).IsEqualTo("profile-2");
+
+        ProfileStore.Create("profile-2");
+        ProfileStore.Create("profile-4");
+        await Assert.That(ProfileStore.SuggestName()).IsEqualTo("profile-3");
+    }
+
+    /// <summary>A suggestion CheckName then refuses would be a prompt rejecting its own default.
+    /// </summary>
+    [Test]
+    public async Task SuggestName_compares_the_way_CheckName_does()
+    {
+        ProfileStore.Create("DEFAULT");
+
+        var suggestion = ProfileStore.SuggestName();
+
+        await Assert.That(suggestion).IsEqualTo("profile-2");
+        ProfileStore.CheckName(suggestion);
+    }
+
     [Test]
     public async Task Create_keeps_the_directory_private()
     {

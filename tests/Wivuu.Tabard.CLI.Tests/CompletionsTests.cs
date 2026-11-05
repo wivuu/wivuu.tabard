@@ -90,6 +90,18 @@ public class CompletionsTests
         await Assert.That(Complete("tabard", "use", "work", "--", "")).IsEmpty();
     }
 
+    /// <summary>The selector is what picks the profile, so only the passthrough is left to offer.
+    /// </summary>
+    [Test]
+    public async Task Suggest_offers_the_passthrough_after_select()
+    {
+        MakeProfiles("work");
+
+        await Assert.That(Complete("tabard", "sel")).IsEquivalentTo(new[] { "select" });
+        await Assert.That(Complete("tabard", "select", "")).IsEquivalentTo(new[] { "--" });
+        await Assert.That(Complete("tabard", "select", "--", "")).IsEmpty();
+    }
+
     /// <summary>The name being typed here is one that does not exist yet.</summary>
     [Test]
     public async Task Suggest_does_not_offer_profiles_to_add()

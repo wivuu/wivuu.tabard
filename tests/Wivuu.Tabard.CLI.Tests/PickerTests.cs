@@ -36,6 +36,41 @@ public class PickerTests
         await Assert.That(launch).Contains(expected).And.IsEqualTo(switching);
     }
 
+    /// <summary>Same limit as the full legend, and nothing on it that does nothing on this row.
+    /// </summary>
+    [Test]
+    public async Task Help_on_the_new_row_offers_only_what_works_there()
+    {
+        var help = Picker.Help(
+            PickerAction.Launch,
+            reordering: false,
+            renaming: false,
+            onNewRow: true
+        );
+
+        await Assert.That(help).Contains("enter new profile");
+        await Assert.That(help).DoesNotContain("rename").And.DoesNotContain("delete");
+        await Assert.That(help.Length).IsLessThanOrEqualTo(80);
+    }
+
+    /// <summary>'switch' moves a pointer and creates nothing, so it must not offer to.</summary>
+    [Test]
+    [Arguments(0, false, 1)]
+    [Arguments(1, false, 2)]
+    [Arguments(5, false, 6)]
+    [Arguments(0, true, 0)]
+    [Arguments(5, true, 5)]
+    public async Task RowCount_adds_the_new_row_only_when_launching(
+        int profiles,
+        bool switching,
+        int expected
+    )
+    {
+        var action = switching ? PickerAction.Switch : PickerAction.Launch;
+
+        await Assert.That(Picker.RowCount(profiles, action)).IsEqualTo(expected);
+    }
+
     private static string Help(bool switching) =>
         Picker.Help(
             switching ? PickerAction.Switch : PickerAction.Launch,

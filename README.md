@@ -44,7 +44,8 @@ source, see [other ways to install](#other-ways-to-install).
 ## Usage
 
 ```sh
-tabard                       # pick a profile, then launch claude
+tabard                       # launch the profile last used in this folder
+tabard select                # pick or create a profile, then launch claude
 tabard use work              # launch a specific profile
 tabard switch work           # repoint ~/.claude at a profile, without launching
 tabard add personal          # create a profile (Anthropic or OpenRouter)
@@ -53,7 +54,8 @@ tabard ls                    # list profiles — never changes anything
 
 | Command | What it does |
 | --- | --- |
-| `tabard [claude args...]` | Pick a profile, then launch |
+| `tabard [claude args...]` | Launch the profile last used in this folder, or ask if it is new |
+| `tabard select [-- ...]` | Pick or create a profile, then launch |
 | `tabard use <name> [-- ...]` | Launch a specific profile |
 | `tabard switch [name]` | Point `~/.claude` at a profile without launching |
 | `tabard add <name>` | Create a profile, choosing Anthropic or OpenRouter |
@@ -66,15 +68,18 @@ tabard ls                    # list profiles — never changes anything
 `tabard --help` is tabard's help; `tabard -- --help` reaches Claude Code's.
 
 **First run** adopts your existing login, so there is nothing to set up: `~/.claude` is moved to
-`~/.tabard/profiles/default` and linked back. With one profile there is no picker — `tabard` goes
-straight to `claude`. With more than one you get a picker, where the number beside a profile
-launches it outright:
+`~/.tabard/profiles/default` and linked back.
+
+**In a folder tabard hasn't seen**, you get the selector, where the number beside a profile launches
+it outright and the last row creates a new one. From then on, a bare `tabard` in that folder goes
+straight into `claude` with the profile you last used there:
 
 ```
   Select a Claude profile
 
   1 > work              erik@example.com  -  max  -  valid 7h
   2   personal          erik@gmail.com    -  pro  -  refresh due
+    + new profile       name it, then log in or connect OpenRouter
 
   up/down move   enter/1-9 launch   o reorder   r rename   x x delete   q quit
 ```
@@ -125,17 +130,31 @@ under `~/.tabard/profiles/<name>`, and switching means setting `CLAUDE_CONFIG_DI
 - **Concurrent sessions work.** Two terminals, two profiles, no clobbering.
 
 Profiles are discovered by listing directories, so the set of profiles can't drift out of sync
-with what's actually on disk. There are two state files: `~/.tabard/last`, which records your
-last choice so a bare `claude` can follow it, and `~/.tabard/order`, one profile name per line,
-which records the order you arranged the picker in. Both are hints over that directory listing —
-neither can conjure a profile that isn't there or hide one that is, so a name either file holds
-for a profile that has gone is simply ignored. Deleting either is harmless.
+with what's actually on disk. There are three state files: `~/.tabard/last`, which records your
+last choice so a bare `claude` can follow it; `~/.tabard/order`, one profile name per line, which
+records the order you arranged the picker in; and `~/.tabard/directories.json`, which records the
+profile each folder last launched. All three are hints over that directory listing — none can
+conjure a profile that isn't there or hide one that is, so a name any of them holds for a profile
+that has gone is simply ignored. Deleting any of them is harmless.
 
 ## Behaviour
 
 First run *moves* `~/.claude` to `~/.tabard/profiles/default` and links `~/.claude` back at it.
 Moving rather than copying keeps tokens and expiry intact with no second copy to go stale.
 `~/.claude.json` gets the same treatment.
+
+Each launch records its profile against the current folder, whether it came from `tabard`, `tabard
+select`, `tabard use` or `tabard add`, and a bare `tabard` goes back to that profile. A folder means
+that exact path: `repo/src` and `repo` are remembered separately, the same way Claude Code keeps its
+per-project history. Without a remembered profile — a new folder, or one whose profile has since been
+deleted — `tabard` behaves like `tabard select`. Only launches through tabard count; a plain `claude`
+leaves no record.
+
+`tabard select` always asks when there is a terminal, even with one profile or none, and it is how you
+change a folder's profile. Choosing `+ new profile` asks for a name, offering one you can accept with
+`enter`, then for a provider, and launches the result; `esc` at any step goes back to the list and
+leaves nothing behind. With no terminal to ask on, such as in a pipe or CI, it can't ask: no profiles
+creates `default` and launches, one profile launches, and more than one lists them and exits 130.
 
 The picker keeps the order you put profiles in rather than floating whatever you launched last to
 the top, so the frame is the same every run — same rows, same numbers, same cursor on row one.
@@ -153,16 +172,20 @@ too short for every profile the list scrolls and the help line says how many are
 it is too short for a frame at all (under seven rows), tabard prints the list and asks you to name
 one rather than draw something you can't read.
 
-After a launch, `~/.claude` is repointed at whichever profile you chose, so a bare `claude`
-invocation stays consistent with your last choice. `tabard ls` never adopts or repoints anything —
-it is safe to run first just to see what tabard would do.
+After a launch, `~/.claude` is repointed at whichever profile launched, so a bare `claude`
+invocation stays consistent with the last one — including a launch that came from a folder's memory
+rather than a choice, so it moves as you work across folders. `tabard ls` never adopts or repoints
+anything — it is safe to run first just to see what tabard would do.
 
 `tabard switch` is that repointing on its own: it records the choice in `~/.tabard/last`, moves the
 `~/.claude` and `~/.claude.json` links, and exits without starting anything. That's what you want
 when the next `claude` is going to be typed by something other than tabard — an editor's integrated
 terminal, a shell alias, a script. With a name it switches straight to it; without one it opens the
-same picker, where `enter` and `1`-`9` switch instead of launching. It creates nothing, so with no
-profiles yet it tells you to run `tabard add <name>`; with exactly one it just repairs the links.
+same picker, where `enter` and `1`-`9` switch instead of launching. It creates nothing, so there is
+no `+ new profile` row, with no profiles yet it tells you to run `tabard add <name>`, and with exactly
+one it just repairs the links. Since it starts nothing it doesn't change what a folder remembers, so a
+later bare `tabard` in a folder that remembers another profile launches that one and moves the links
+back.
 
 ## OpenRouter profiles
 
