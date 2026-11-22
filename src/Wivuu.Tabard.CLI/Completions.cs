@@ -66,7 +66,7 @@ internal static class Completions
 
     private static readonly string[] SetupFlags = [.. ModelFlags, "--key-stdin"];
 
-    private static readonly string[] AddFlags = ["--openrouter", .. SetupFlags];
+    private static readonly string[] AddFlags = ["--pi", "--openrouter", .. SetupFlags];
 
     /// <summary>
     /// Offered after a model flag. The built-in list rather than the live catalog on purpose: a

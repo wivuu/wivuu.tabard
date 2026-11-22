@@ -38,6 +38,10 @@ internal static class Paths
     /// </summary>
     public static string ImagesFile { get; } = Path.Combine(TabardRoot, "images");
 
+    /// <summary>The profiles that launch something other than Claude Code. Outside every profile
+    /// for the same reason as <see cref="SandboxedFile"/>. See <see cref="Harnesses"/>.</summary>
+    public static string HarnessesFile { get; } = Path.Combine(TabardRoot, "harnesses");
+
     /// <summary>Where 'tabard completion install' leaves the script it points a shell at.</summary>
     public static string CompletionsRoot { get; } = Path.Combine(TabardRoot, "completions");
 

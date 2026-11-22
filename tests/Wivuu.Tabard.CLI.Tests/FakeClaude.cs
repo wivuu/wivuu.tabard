@@ -10,24 +10,26 @@ internal sealed class FakeClaude : IDisposable
     private readonly string? _originalPath = Environment.GetEnvironmentVariable("PATH");
     private readonly string _log;
 
-    public FakeClaude()
+    /// <summary><paramref name="command"/> and <paramref name="variable"/> make it stand in for
+    /// another harness: 'pi' noting PI_CODING_AGENT_DIR, say.</summary>
+    public FakeClaude(string command = "claude", string variable = "CLAUDE_CONFIG_DIR")
     {
-        var dir = Sandbox.Scratch("fake-claude");
+        var dir = Sandbox.Scratch($"fake-{command}");
         _log = Path.Combine(dir, "launches");
 
         if (OperatingSystem.IsWindows())
         {
             File.WriteAllText(
-                Path.Combine(dir, "claude.cmd"),
-                $"@echo off\r\n>>\"{_log}\" echo %CLAUDE_CONFIG_DIR%^|%*\r\n"
+                Path.Combine(dir, $"{command}.cmd"),
+                $"@echo off\r\n>>\"{_log}\" echo %{variable}%^|%*\r\n"
             );
         }
         else
         {
-            var script = Path.Combine(dir, "claude");
+            var script = Path.Combine(dir, command);
             File.WriteAllText(
                 script,
-                $"#!/bin/sh\nprintf '%s|%s\\n' \"$CLAUDE_CONFIG_DIR\" \"$*\" >> '{_log}'\n"
+                $"#!/bin/sh\nprintf '%s|%s\\n' \"${variable}\" \"$*\" >> '{_log}'\n"
             );
             File.SetUnixFileMode(
                 script,

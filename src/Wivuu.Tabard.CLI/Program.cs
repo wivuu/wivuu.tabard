@@ -43,7 +43,7 @@ internal static class Cli
     private const string SwitchUsage = "usage: tabard switch [name]";
 
     private const string AddUsage =
-        "usage: tabard add <name> [--openrouter] [--model <slug>] "
+        "usage: tabard add <name> [--pi | --openrouter] [--model <slug>] "
         + "[--opus|--sonnet|--haiku|--fable|--subagent <slug>] [--key-stdin]";
 
     /// <summary>
@@ -121,6 +121,12 @@ internal static class Cli
     {
         if (Wizard.ChooseName() is not { } name)
             return null;
+
+        if (Wizard.ChooseHarness() is not { } harness)
+            return null;
+
+        if (harness is Harness.Pi)
+            return ProvisionPi(name);
 
         if (Wizard.ChooseProvider() is not { } provider)
             return null;
@@ -360,6 +366,19 @@ internal static class Cli
     {
         var options = AddOptions.Parse(args, AddUsage);
 
+        // The OpenRouter flags only mean something for Claude Code, so they answer this too.
+        var harness =
+            options.Harness
+            ?? (
+                options.UseOpenRouter || !Term.Interactive ? Harness.Claude : Wizard.ChooseHarness()
+            );
+
+        if (harness is not { } chosenHarness)
+            return Cancelled();
+
+        if (chosenHarness is Harness.Pi)
+            return CreatePi(options.Name);
+
         // Asked before anything is created, so escaping the wizard leaves nothing behind. A pipe or
         // a CI job has no one to ask, and gets the login flow it has always got.
         var provider =
@@ -368,6 +387,34 @@ internal static class Cli
             : Provider.Anthropic;
 
         return provider is { } chosen ? Create(options, chosen) : Cancelled();
+    }
+
+    private static int CreatePi(string name) => LaunchInto(ProvisionPi(name), []);
+
+    /// <summary>pi has its own '/login' and provider setup, so a new pi profile is an empty
+    /// directory marked as pi's, ready to launch.</summary>
+    private static Profile ProvisionPi(string name)
+    {
+        Adopt();
+
+        var profile = ProfileStore.Create(name);
+
+        try
+        {
+            using (ProfileStore.AcquireLock())
+                Harnesses.Set(profile.Name, Harness.Pi);
+        }
+        catch
+        {
+            Discard(profile);
+            throw;
+        }
+
+        Console.Error.WriteLine(
+            $"tabard: created '{profile.Name}'. Launching pi - use /login to sign in."
+        );
+
+        return profile;
     }
 
     private static int Create(AddOptions options, Provider provider) =>
@@ -491,7 +538,7 @@ internal static class Cli
                     ? "*"
                     : " ";
                 var sandbox = Sandboxing.Mark(sandboxed.Contains(profile.Name));
-                Console.WriteLine($"{marker} {sandbox} {profile.Name, -18}{profile.Describe()}");
+                Console.WriteLine($"{marker} {sandbox} {profile.Name, -18}{profile.Summary()}");
             }
         }
 
@@ -819,8 +866,9 @@ internal static class Cli
 
         ProfileStore.SetLastUsed(profile.Name);
 
-        // Keep a bare 'claude' invocation consistent with the last choice made here.
-        return ProfileStore.Relink(profile);
+        // Keep a bare 'claude' invocation consistent with the last choice made here. A pi profile
+        // is not a Claude Code config, so ~/.claude stays on whichever Claude profile it was on.
+        return profile.Harness is Harness.Claude ? ProfileStore.Relink(profile) : [];
     }
 
     private static void Adopt()
@@ -849,7 +897,7 @@ internal static class Cli
               tabard select [-- ...]      Pick or create a profile, then launch
               tabard use <name> [-- ...]  Launch a specific profile
               tabard switch [name]        Point ~/.claude at a profile without launching
-              tabard add <name>           Create a profile, choosing Anthropic or OpenRouter
+              tabard add <name>           Create a profile: Claude Code (Anthropic or OpenRouter) or pi
               tabard rm <name>            Delete a profile
               tabard sandbox <cmd>        Launch a profile inside a Docker sandbox, or not
               tabard ls                   List profiles
@@ -873,7 +921,10 @@ internal static class Cli
 
             Profiles live in ~/.tabard/profiles/<name> and are passed to Claude Code
             as CLAUDE_CONFIG_DIR, so each one keeps its own login, settings and history.
+            A pi profile is passed to pi as PI_CODING_AGENT_DIR instead; which profiles
+            launch pi is saved in ~/.tabard/harnesses.
 
+            'tabard add <name> --pi' makes a pi profile without asking.
             'tabard add <name> --openrouter' skips the provider question; see
             'tabard openrouter help' for the rest.
             """

@@ -42,6 +42,19 @@ internal static class Wizard
     }
 
     /// <summary>Null if the user escaped.</summary>
+    public static Harness? ChooseHarness()
+    {
+        Choice<Harness>[] choices =
+        [
+            new(Harness.Claude, "Claude Code", "Anthropic's coding agent"),
+            new(Harness.Pi, "pi", "the pi coding agent"),
+        ];
+
+        return Prompt
+            .Select("What should this profile launch?", choices, c => c.Label, c => c.Detail)
+            ?.Value;
+    }
+
     public static Provider? ChooseProvider()
     {
         Choice<Provider>[] choices =

@@ -264,6 +264,26 @@ Claude Code cannot work without those — plus the aliases and routers, which de
 and would otherwise be filtered out of their own defaults. If OpenRouter can't be reached, a small
 built-in list is shown instead and any slug can still be set with a flag.
 
+## pi profiles
+
+A profile can launch [pi](https://github.com/badlogic/pi-mono) instead of Claude Code. `tabard add`
+asks which one a new profile should launch, or skip the question with a flag:
+
+```sh
+tabard add local --pi    # a pi profile; sign in with /login inside pi
+tabard use local -- -c   # arguments after -- go to pi
+```
+
+A pi profile is still a directory under `~/.tabard/profiles/<name>`, handed to pi as
+`PI_CODING_AGENT_DIR`, so its auth, settings and sessions stay separate from every other profile.
+The picker and `tabard ls` show which harness each row launches, and for pi the provider and model
+its `settings.json` starts with. Which profiles launch pi is saved in `~/.tabard/harnesses`, outside
+every profile, so an agent cannot change what tabard launches next time.
+
+`~/.claude` only ever points at Claude Code profiles: launching or switching to a pi profile leaves
+it where it was. Sandboxing a pi profile is not supported yet — a pi profile marked sandboxed refuses
+to launch rather than run outside one.
+
 ## Sandboxed profiles
 
 A profile can launch Claude Code inside a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) —
