@@ -369,7 +369,7 @@ will run it.
 Or build the native binary yourself and drop it on your PATH:
 
 ```sh
-dotnet publish src/Wivuu.Tabard.CLI -c Release -r osx-arm64   # or linux-x64, win-x64
+dotnet publish src/Wivuu.Tabard.CLI -c Release -r osx-arm64 -f net11.0   # or linux-x64, win-x64
 ```
 
 `PublishAot` turns on whenever a RID is given, so this produces a single ~2.4 MB native

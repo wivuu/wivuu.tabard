@@ -1,7 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- Every framework the tool ships for. CI installs both runtimes, so each is tested on its
+         own; RollForward lets a machine with only the newer one still run the older build. -->
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    <RollForward>Major</RollForward>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
