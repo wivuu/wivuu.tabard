@@ -4,8 +4,11 @@ namespace Wivuu.Tabard.Cli;
 
 internal static class Launcher
 {
-    public static int Launch(Profile profile, IReadOnlyList<string> claudeArgs)
+    public static int Launch(Profile profile, IReadOnlyList<string> claudeArgs, bool sandboxed)
     {
+        if (sandboxed)
+            return LaunchSandboxed(profile, claudeArgs);
+
         var executable =
             Which("claude")
             ?? throw new FileNotFoundException(
@@ -18,6 +21,60 @@ internal static class Launcher
         // literally by some Claude Code versions, stranding credentials under the CWD.
         psi.Environment["CLAUDE_CONFIG_DIR"] = Path.GetFullPath(profile.Dir);
 
+        return Run(psi);
+    }
+
+    /// <summary>
+    /// Claude Code inside a Docker sandbox. Every refusal here happens before anything starts: a
+    /// profile marked as sandboxed must never fall back to launching directly, because whoever
+    /// marked it decided it should not run loose on this machine.
+    /// </summary>
+    private static int LaunchSandboxed(Profile profile, IReadOnlyList<string> claudeArgs)
+    {
+        // The sandbox sees the host's paths at the same paths, and a Windows path means nothing to
+        // the Linux inside it.
+        if (OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException(
+                $"'{profile.Name}' is set to launch in a sandbox, which tabard does not support on "
+                    + $"Windows yet. Run 'tabard sandbox off {profile.Name}' to launch it directly."
+            );
+
+        var executable =
+            Which(Sandboxing.Executable)
+            ?? throw new FileNotFoundException(
+                $"'{profile.Name}' is set to launch in a Docker sandbox, but 'sbx' is not on PATH. "
+                    + "Install it with 'brew install docker/tap/sbx', or run "
+                    + $"'tabard sandbox off {profile.Name}' to launch it directly."
+            );
+
+        var workspace = Directory.GetCurrentDirectory();
+        Sandboxing.CheckWorkspace(workspace);
+        Sandboxing.Prepare(profile.Dir);
+
+        var sandbox = Sandboxing.SandboxName(profile.Name, workspace);
+        var exists = Sandboxing.Exists(executable, sandbox);
+
+        Console.Error.WriteLine(
+            exists
+                ? $"tabard: launching '{profile.Name}' in sandbox {sandbox}."
+                : $"tabard: creating sandbox {sandbox} for '{profile.Name}'."
+        );
+
+        var psi = BuildStartInfo(
+            executable,
+            Sandboxing.RunArgs(sandbox, profile.Dir, workspace, exists, claudeArgs)
+        );
+
+        var code = Run(psi);
+
+        if (Sandboxing.ForgetGateway(profile.ClaudeJsonFile) is { } problem)
+            Console.Error.WriteLine($"tabard: {problem}");
+
+        return code;
+    }
+
+    private static int Run(ProcessStartInfo psi)
+    {
         // Ctrl+C belongs to the child; tabard just waits for it to finish. Registered before the
         // start so there is no window where an early ^C kills tabard out from under the child.
         Console.CancelKeyPress += (_, e) => e.Cancel = true;

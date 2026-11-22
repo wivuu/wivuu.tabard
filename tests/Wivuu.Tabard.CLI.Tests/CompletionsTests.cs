@@ -80,14 +80,33 @@ public class CompletionsTests
         await Assert.That(Complete("tabard", "remove", "")).IsEquivalentTo(new[] { "work" });
     }
 
-    /// <summary>Past the name the words are claude's, and '--' is what hands them over.</summary>
+    /// <summary>Past the name the words are claude's, and '--' is what hands them over - after
+    /// the sandbox overrides, which are only tabard's straight after the name.</summary>
     [Test]
     public async Task Suggest_offers_the_passthrough_after_a_profile()
     {
         MakeProfiles("work");
 
-        await Assert.That(Complete("tabard", "use", "work", "")).IsEquivalentTo(new[] { "--" });
+        await Assert
+            .That(Complete("tabard", "use", "work", ""))
+            .IsEquivalentTo(new[] { "--sandbox", "--no-sandbox", "--" });
+        await Assert
+            .That(Complete("tabard", "use", "work", "--sandbox", ""))
+            .IsEquivalentTo(new[] { "--" });
         await Assert.That(Complete("tabard", "use", "work", "--", "")).IsEmpty();
+    }
+
+    [Test]
+    public async Task Suggest_offers_the_sandbox_verbs_and_then_profiles()
+    {
+        MakeProfiles("work");
+
+        await Assert.That(Complete("tabard", "sa")).IsEquivalentTo(new[] { "sandbox" });
+        await Assert
+            .That(Complete("tabard", "sandbox", ""))
+            .IsEquivalentTo(new[] { "on", "off", "help", "work" });
+        await Assert.That(Complete("tabard", "sandbox", "on", "")).IsEquivalentTo(new[] { "work" });
+        await Assert.That(Complete("tabard", "sandbox", "off", "work", "")).IsEmpty();
     }
 
     /// <summary>The selector is what picks the profile, so only the passthrough is left to offer.

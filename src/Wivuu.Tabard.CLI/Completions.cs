@@ -36,6 +36,7 @@ internal static class Completions
         "add",
         "rm",
         "ls",
+        "sandbox",
         "openrouter",
         "completion",
         "help",
@@ -121,13 +122,21 @@ internal static class Completions
             {
                 1 => Profiles(),
                 // 'tabard use <name> -- ...' is the documented way through to claude's own flags,
-                // and past that the words belong to claude rather than to tabard.
-                2 => ["--"],
+                // and past that the words belong to claude rather than to tabard. The sandbox
+                // overrides are only tabard's straight after the name.
+                2 => ["--sandbox", "--no-sandbox", "--"],
+                3 when before[2] is "--sandbox" or "--no-sandbox" => ["--"],
                 _ => [],
             },
             // 'switch' takes a name and nothing else - there is no '--' to pass anything through to.
             "switch" or "sw" => before.Count == 1 ? Profiles() : [],
             "rm" or "remove" => before.Count == 1 ? Profiles() : [],
+            "sandbox" or "sbx" => before.Count switch
+            {
+                1 => ["on", "off", "help", .. Profiles()],
+                2 when before[1] is "on" or "off" => Profiles(),
+                _ => [],
+            },
             // Not Profiles(): the name being typed here is one that does not exist yet.
             "add" or "new" => AddFlags,
             "openrouter" or "or" => OpenRouterCandidates(before),

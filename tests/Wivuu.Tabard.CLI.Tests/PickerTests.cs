@@ -71,6 +71,34 @@ public class PickerTests
         await Assert.That(Picker.RowCount(profiles, action)).IsEqualTo(expected);
     }
 
+    /// <summary>'s' shows the highlighted row's setting, which is also what explains the mark
+    /// beside the names - and the legend still has to fit 80 columns either way.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Help_shows_whether_the_highlighted_profile_is_sandboxed(bool sandboxed)
+    {
+        var help = Picker.Help(
+            PickerAction.Launch,
+            reordering: false,
+            renaming: false,
+            sandboxed: sandboxed
+        );
+
+        await Assert.That(help).Contains($"s {Sandboxing.Legend(sandboxed)} sandbox");
+        await Assert.That(help).Contains("x x delete");
+        await Assert.That(help.Length).IsLessThanOrEqualTo(80);
+        await Assert.That(Sandboxing.Legend(true)).IsNotEqualTo(Sandboxing.Legend(false));
+    }
+
+    /// <summary>'switch' starts nothing, so whether a launch would be sandboxed is not its business.
+    /// </summary>
+    [Test]
+    public async Task Help_for_switch_does_not_offer_the_sandbox()
+    {
+        await Assert.That(Help(switching: true)).DoesNotContain("sandbox");
+    }
+
     private static string Help(bool switching) =>
         Picker.Help(
             switching ? PickerAction.Switch : PickerAction.Launch,
