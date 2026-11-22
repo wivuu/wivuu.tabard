@@ -267,8 +267,7 @@ built-in list is shown instead and any slug can still be set with a flag.
 ## Sandboxed profiles
 
 A profile can launch Claude Code inside a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) —
-a microVM that sees the current folder and nothing else of your machine — so it can run without
-permission prompts at no risk to the rest of the machine. It needs `sbx` (`brew install docker/tap/sbx`,
+a microVM that sees the current folder and nothing else of your machine. It needs `sbx` (`brew install docker/tap/sbx`,
 then `sbx login`) and macOS or Linux.
 
 In the picker, `s` turns it on or off for the highlighted profile. A `■` beside a name means it is
@@ -304,6 +303,12 @@ What the sandbox can and cannot touch:
 
 Things to know:
 
+- **Permission prompts stay on by default.** sbx's image always starts Claude Code with
+  `--dangerously-skip-permissions`; tabard passes `--settings` with
+  `disableBypassPermissionsMode` for the session so Claude Code still asks. To run without prompts,
+  ask for it the way you would directly — `tabard use work -- --dangerously-skip-permissions` (or
+  `--permission-mode bypassPermissions`) — and tabard leaves the setting out. Nothing is written
+  to the profile, so direct launches are unaffected.
 - **Log in once inside the sandbox.** On macOS a direct launch keeps its login in the Keychain,
   which the sandbox cannot read, so the first sandboxed launch of an Anthropic profile asks for
   `/login`. That login is written to `.credentials.json` in the profile and reused from then on.

@@ -187,6 +187,8 @@ public class SandboxingTests
                     dir,
                     $"{Path.Combine(dir, "settings.json")}:ro",
                     "--",
+                    "--settings",
+                    Sandboxing.KeepPrompts,
                     "--continue",
                 }
             );
@@ -204,8 +206,52 @@ public class SandboxingTests
         await Assert
             .That(args)
             .IsEquivalentTo(
-                new[] { "run", "--name", "tabard-x", "-e", $"CLAUDE_CONFIG_DIR={dir}" }
+                new[]
+                {
+                    "run",
+                    "--name",
+                    "tabard-x",
+                    "-e",
+                    $"CLAUDE_CONFIG_DIR={dir}",
+                    "--",
+                    "--settings",
+                    Sandboxing.KeepPrompts,
+                }
             );
+    }
+
+    /// <summary>sbx's image always passes --dangerously-skip-permissions, so tabard keeps the
+    /// prompts on unless the launch asks for bypass mode itself.</summary>
+    [Test]
+    [Arguments("--dangerously-skip-permissions")]
+    [Arguments("--allow-dangerously-skip-permissions")]
+    [Arguments("--permission-mode bypassPermissions")]
+    [Arguments("--permission-mode=bypassPermissions")]
+    public async Task RunArgs_leaves_prompts_off_when_asked(string line)
+    {
+        var claudeArgs = line.Split(' ');
+        var dir = Sandbox.Scratch();
+
+        var args = Sandboxing.RunArgs("tabard-x", dir, "/projects/app", exists: true, claudeArgs);
+
+        await Assert.That(args).DoesNotContain(Sandboxing.KeepPrompts);
+        await Assert.That(args.TakeLast(claudeArgs.Length)).IsEquivalentTo(claudeArgs);
+    }
+
+    [Test]
+    public async Task RunArgs_keeps_prompts_for_other_permission_modes()
+    {
+        var dir = Sandbox.Scratch();
+
+        var args = Sandboxing.RunArgs(
+            "tabard-x",
+            dir,
+            "/projects/app",
+            exists: true,
+            ["--permission-mode", "acceptEdits"]
+        );
+
+        await Assert.That(args).Contains(Sandboxing.KeepPrompts);
     }
 
     /// <summary>A folder holding ~/.tabard would hand the sandbox the list that decides whether it

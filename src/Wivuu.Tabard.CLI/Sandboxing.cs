@@ -304,6 +304,8 @@ internal static class Sandboxing
     /// The arguments for 'sbx'. Creating takes the mounts, which sbx fixes at creation; going back
     /// into one that exists takes only the name, because sbx keeps the rest. The environment is
     /// passed both times - sbx applies it to the session, not just to the sandbox it creates.
+    /// Permission prompts stay on unless <paramref name="claudeArgs"/> asks for bypass mode; see
+    /// <see cref="KeepPrompts"/>.
     /// </summary>
     public static List<string> RunArgs(
         string sandbox,
@@ -326,13 +328,49 @@ internal static class Sandboxing
             args.AddRange(ReadOnlyPaths(configDir).Select(path => $"{path}:ro"));
         }
 
-        if (claudeArgs.Count > 0)
-        {
-            args.Add("--");
-            args.AddRange(claudeArgs);
-        }
+        args.Add("--");
+
+        if (!AsksToBypass(claudeArgs))
+            args.AddRange(["--settings", KeepPrompts]);
+
+        args.AddRange(claudeArgs);
 
         return args;
+    }
+
+    /// <summary>
+    /// sbx's claude image launches <c>claude --dangerously-skip-permissions</c> and appends the
+    /// agent arguments after it, so nothing passed here can take that flag back. This setting
+    /// can: Claude Code refuses bypass mode while it is set, whatever the command line says, and
+    /// falls back to asking. As a <c>--settings</c> argument it lasts for this session only and is
+    /// never written into the profile, which a direct launch shares.
+    /// </summary>
+    internal const string KeepPrompts =
+        """{"permissions":{"disableBypassPermissionsMode":"disable"}}""";
+
+    /// <summary>Asking for bypass mode the way you would ask a direct launch for it is the opt-in:
+    /// the sandbox then runs without prompts, as sbx intends.</summary>
+    internal static bool AsksToBypass(IReadOnlyList<string> claudeArgs)
+    {
+        for (var i = 0; i < claudeArgs.Count; i++)
+        {
+            var arg = claudeArgs[i];
+
+            if (arg is "--dangerously-skip-permissions" or "--allow-dangerously-skip-permissions")
+                return true;
+
+            if (arg == "--permission-mode=bypassPermissions")
+                return true;
+
+            if (
+                arg == "--permission-mode"
+                && i + 1 < claudeArgs.Count
+                && claudeArgs[i + 1] == "bypassPermissions"
+            )
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>

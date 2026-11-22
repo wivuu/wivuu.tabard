@@ -366,7 +366,9 @@ public class CliTests
         await Assert.That(run).Contains(Directory.GetCurrentDirectory());
         await Assert.That(run).Contains(dir);
         await Assert.That(run).Contains($"{Path.Combine(dir, "settings.json")}:ro");
-        await Assert.That(run.TakeLast(2)).IsEquivalentTo(new[] { "--", "--continue" });
+        await Assert
+            .That(run.TakeLast(4))
+            .IsEquivalentTo(new[] { "--", "--settings", Sandboxing.KeepPrompts, "--continue" });
     }
 
     [Test]
@@ -415,7 +417,9 @@ public class CliTests
         await Assert.That(claude.Launches.Count).IsEqualTo(1);
         await Assert.That(claude.Launches[0].Args).IsEqualTo("");
         await Assert.That(sbx.Runs.Count).IsEqualTo(1);
-        await Assert.That(sbx.Runs[0].TakeLast(3)).IsEquivalentTo(new[] { "--", "-p", "hi" });
+        await Assert
+            .That(sbx.Runs[0].TakeLast(5))
+            .IsEquivalentTo(new[] { "--", "--settings", Sandboxing.KeepPrompts, "-p", "hi" });
 
         // One launch each, and neither changed what the profiles are set to.
         await Assert.That(Sandboxing.IsOn("work")).IsTrue();
