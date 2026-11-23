@@ -16,8 +16,19 @@ internal sealed class Profile
 
     public required string Name { get; init; }
 
-    /// <summary>The directory handed to Claude Code as CLAUDE_CONFIG_DIR.</summary>
+    /// <summary>The directory handed to the harness: CLAUDE_CONFIG_DIR for Claude Code,
+    /// PI_CODING_AGENT_DIR for pi.</summary>
     public required string Dir { get; init; }
+
+    private Harness? _harness;
+
+    /// <summary>What this profile launches. Read from <see cref="Paths.HarnessesFile"/> the first
+    /// time it is asked for.</summary>
+    public Harness Harness
+    {
+        get => _harness ??= Harnesses.Of(Name);
+        init => _harness = value;
+    }
 
     public string? Account { get; private set; }
     public string? Plan { get; private set; }
@@ -196,9 +207,16 @@ internal sealed class Profile
         return null;
     }
 
+    /// <summary>The picker's and 'tabard ls''s row after the name: the harness, then
+    /// <see cref="Describe"/>.</summary>
+    public string Summary() => $"{Harnesses.Label(Harness), -8}{Describe()}";
+
     /// <summary>A one-line summary for the picker.</summary>
     public string Describe()
     {
+        if (Harness is Harness.Pi)
+            return Harnesses.DescribePi(Dir);
+
         ReadMetadata();
 
         if (_provider is Provider.OpenRouter)

@@ -6,22 +6,37 @@ internal static class Launcher
 {
     public static int Launch(Profile profile, IReadOnlyList<string> claudeArgs, bool sandboxed)
     {
-        if (sandboxed)
-            return LaunchSandboxed(profile, claudeArgs);
+        var harness = profile.Harness;
 
+        if (sandboxed)
+        {
+            // Refused rather than launched directly: whoever marked the profile sandboxed decided
+            // it should not run loose on this machine.
+            if (harness is not Harness.Claude)
+                throw new InvalidOperationException(
+                    $"'{profile.Name}' is set to launch {Harnesses.DisplayName(harness)} in a sandbox, "
+                        + "which tabard does not support yet. Run "
+                        + $"'tabard sandbox off {profile.Name}' to launch it directly."
+                );
+
+            return LaunchSandboxed(profile, claudeArgs);
+        }
+
+        var command = Harnesses.Executable(harness);
         var executable =
-            Which("claude")
+            Which(command)
             ?? throw new FileNotFoundException(
-                "could not find 'claude' on PATH. Install Claude Code first, or put it on PATH."
+                $"could not find '{command}' on PATH. Install {Harnesses.DisplayName(harness)} "
+                    + "first, or put it on PATH."
             );
 
         var psi = BuildStartInfo(executable, claudeArgs);
 
         // Must be absolute and fully expanded. A '~' left in this value has been written
         // literally by some Claude Code versions, stranding credentials under the CWD.
-        psi.Environment["CLAUDE_CONFIG_DIR"] = Path.GetFullPath(profile.Dir);
+        psi.Environment[Harnesses.ConfigVariable(harness)] = Path.GetFullPath(profile.Dir);
 
-        return Run(psi);
+        return Run(psi, command);
     }
 
     /// <summary>
@@ -78,7 +93,7 @@ internal static class Launcher
             )
         );
 
-        var code = Run(psi);
+        var code = Run(psi, Sandboxing.Executable);
 
         if (Sandboxing.ForgetGateway(profile.ClaudeJsonFile) is { } problem)
             Console.Error.WriteLine($"tabard: {problem}");
@@ -86,14 +101,15 @@ internal static class Launcher
         return code;
     }
 
-    private static int Run(ProcessStartInfo psi)
+    private static int Run(ProcessStartInfo psi, string command)
     {
         // Ctrl+C belongs to the child; tabard just waits for it to finish. Registered before the
         // start so there is no window where an early ^C kills tabard out from under the child.
         Console.CancelKeyPress += (_, e) => e.Cancel = true;
 
         using var proc =
-            Process.Start(psi) ?? throw new InvalidOperationException("failed to start claude.");
+            Process.Start(psi)
+            ?? throw new InvalidOperationException($"failed to start {command}.");
 
         proc.WaitForExit();
         return proc.ExitCode;

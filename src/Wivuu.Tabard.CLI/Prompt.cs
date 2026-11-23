@@ -145,11 +145,22 @@ internal static class Prompt
     /// <summary>
     /// A single line of input. <paramref name="secret"/> echoes stars - it is what the API key goes
     /// through, and a key left on screen ends up in a scrollback or a screenshot.
+    /// <paramref name="initial"/> is typed in already, to edit; <paramref name="fallback"/> is shown
+    /// as '[fallback]' beside the label and is the answer to pressing enter on an empty line, so a
+    /// suggestion never has to be deleted before typing something else.
     /// </summary>
-    public static string? Text(string label, string? initial = null, bool secret = false)
+    public static string? Text(
+        string label,
+        string? initial = null,
+        bool secret = false,
+        string? fallback = null
+    )
     {
         if (!Term.Interactive)
             return null;
+
+        if (fallback is { Length: > 0 })
+            label = $"{label} [{fallback}]";
 
         var value = new StringBuilder(initial ?? "");
 
@@ -175,7 +186,10 @@ internal static class Prompt
                 {
                     case ConsoleKey.Enter:
                         Console.WriteLine();
-                        return value.ToString().Trim();
+                        var answer = value.ToString().Trim();
+                        return answer.Length == 0 && fallback is { Length: > 0 }
+                            ? fallback
+                            : answer;
 
                     case ConsoleKey.Escape:
                         Console.WriteLine();

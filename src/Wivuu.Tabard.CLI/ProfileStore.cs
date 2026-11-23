@@ -335,6 +335,7 @@ internal static class ProfileStore
 
         DirectoryMemory.RenameProfile(profile.Name, newName);
         Sandboxing.MoveImage(profile.Name, newName);
+        Harnesses.RenameProfile(profile.Name, newName);
 
         var warnings = new List<string>();
 
@@ -428,6 +429,7 @@ internal static class ProfileStore
             DirectoryMemory.ForgetProfile(profile.Name);
             Sandboxing.ForgetProfile(profile.Name);
             Sandboxing.MoveImage(profile.Name, null);
+            Harnesses.ForgetProfile(profile.Name);
         }
 
         // Not removed for you: tabard cannot tell its sandboxes apart from ones made by hand

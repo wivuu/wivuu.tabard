@@ -489,7 +489,7 @@ internal static class Picker
     {
         var lines = new List<Line>(frameHeight)
         {
-            new("  Select a Claude profile", ConsoleColor.White),
+            new("  Select a profile", ConsoleColor.White),
             new("", null),
         };
 
@@ -531,7 +531,7 @@ internal static class Picker
 
             lines.Add(
                 new(
-                    $"{gutter}{name}{profile.Describe()}",
+                    $"{gutter}{name}{profile.Summary()}",
                     colour,
                     on && !selected ? new Accent(NameColumn - 2, 1, SandboxColour) : null
                 )
@@ -647,7 +647,7 @@ internal static class Picker
         var sandboxed = Sandboxing.Names();
         foreach (var profile in profiles)
             Console.Error.WriteLine(
-                $"  {Sandboxing.Mark(sandboxed.Contains(profile.Name))} {profile.Name}  ({profile.Describe()})"
+                $"  {Sandboxing.Mark(sandboxed.Contains(profile.Name))} {profile.Name}  ({profile.Summary()})"
             );
 
         // Naming the command they actually typed: 'tabard use' would start a session someone who

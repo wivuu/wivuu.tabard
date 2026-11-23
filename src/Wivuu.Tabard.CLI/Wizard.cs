@@ -21,11 +21,14 @@ internal static class Wizard
     /// </summary>
     public static string? ChooseName()
     {
-        var initial = ProfileStore.SuggestName();
+        var suggestion = ProfileStore.SuggestName();
+        string? retry = null;
 
         while (true)
         {
-            if (Prompt.Text("Profile name", initial) is not { } name)
+            // The suggestion is what enter takes, not text to delete first. A name that was
+            // refused comes back typed in, so it can be fixed rather than retyped.
+            if (Prompt.Text("Profile name", retry, fallback: suggestion) is not { } name)
                 return null;
 
             try
@@ -36,12 +39,55 @@ internal static class Wizard
             catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
             {
                 Console.Error.WriteLine($"tabard: {ex.Message}");
-                initial = name;
+                retry = name;
             }
         }
     }
 
     /// <summary>Null if the user escaped.</summary>
+    public static Harness? ChooseHarness()
+    {
+        Choice<Harness>[] choices =
+        [
+            new(Harness.Claude, "Claude Code", "Anthropic's coding agent"),
+            new(Harness.Pi, "pi", "the pi coding agent"),
+        ];
+
+        return Prompt
+            .Select("What should this profile launch?", choices, c => c.Label, c => c.Detail)
+            ?.Value;
+    }
+
+    /// <summary>
+    /// Fresh, or another profile's configuration to start from. False if the user escaped; true
+    /// with <paramref name="source"/> null for a fresh profile. Asks nothing, and answers fresh,
+    /// when there is nothing to copy.
+    /// </summary>
+    public static bool ChooseSource(Harness harness, out CopySource? source)
+    {
+        source = null;
+
+        var sources = ProfileCopy.Sources(harness);
+        if (sources.Count == 0)
+            return true;
+
+        List<Choice<CopySource?>> choices =
+        [
+            new(null, "Start fresh", "an empty profile"),
+            .. sources.Select(s => new Choice<CopySource?>(
+                s,
+                $"Copy {s.Label}",
+                "its login, settings, MCP servers, plugins and skills - not its history"
+            )),
+        ];
+
+        if (Prompt.Select("Start from?", choices, c => c.Label, c => c.Detail) is not { } picked)
+            return false;
+
+        source = picked.Value;
+        return true;
+    }
+
     public static Provider? ChooseProvider()
     {
         Choice<Provider>[] choices =

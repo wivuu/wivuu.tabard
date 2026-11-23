@@ -8,6 +8,12 @@ internal sealed record AddOptions
 {
     public required string Name { get; init; }
     public bool UseOpenRouter { get; init; }
+
+    /// <summary>--pi: launch pi rather than Claude Code. Null when no harness flag was given.</summary>
+    public Harness? Harness { get; init; }
+
+    /// <summary>--from: the profile (or, for pi, 'pi') whose configuration a new profile starts with.</summary>
+    public string? From { get; init; }
     public bool KeyFromStdin { get; init; }
 
     /// <summary>Environment variable name to model slug, for the slots that were given explicitly.</summary>
@@ -18,6 +24,8 @@ internal sealed record AddOptions
     {
         string? name = null;
         var openRouter = false;
+        Harness? harness = null;
+        string? from = null;
         var keyFromStdin = false;
         var models = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -28,6 +36,21 @@ internal sealed record AddOptions
             if (arg == "--openrouter")
             {
                 openRouter = true;
+                continue;
+            }
+
+            if (arg == "--pi")
+            {
+                harness = Cli.Harness.Pi;
+                continue;
+            }
+
+            if (arg == "--from")
+            {
+                if (i + 1 >= args.Count)
+                    throw new ArgumentException("'--from' needs a profile to copy from.");
+
+                from = args[++i];
                 continue;
             }
 
@@ -74,10 +97,18 @@ internal sealed record AddOptions
             name = arg;
         }
 
+        // The OpenRouter flags write Claude Code's settings.json; pi keeps its own providers.
+        if (harness is Cli.Harness.Pi && openRouter)
+            throw new ArgumentException(
+                "--pi does not take the OpenRouter flags - set pi's provider from inside pi."
+            );
+
         return new AddOptions
         {
             Name = name ?? throw new ArgumentException(usage),
             UseOpenRouter = openRouter,
+            Harness = harness,
+            From = from,
             KeyFromStdin = keyFromStdin,
             Models = models,
         };

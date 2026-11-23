@@ -161,7 +161,26 @@ public class CliTests
         await Assert.That(Links.PointsAt(Paths.ClaudeDir, work.Dir)).IsTrue();
     }
 
+    /// <summary>tabard's own, never passed through: '-v' and '--version' are also claude's, and
+    /// launching a session to print a version would be the wrong answer to both.</summary>
     [Test]
+    [Arguments("--version")]
+    [Arguments("-v")]
+    [Arguments("version")]
+    public async Task Version_is_tabards_own(string arg)
+    {
+        using var claude = new FakeClaude();
+        ProfileStore.Create("work");
+
+        await Assert.That(global::Cli.Run([arg])).IsEqualTo(0);
+
+        await Assert.That(claude.Launches).IsEmpty();
+        await Assert.That(global::Cli.VersionText()).DoesNotContain("+");
+        await Assert.That(global::Cli.VersionText()).Matches(@"^\d+\.\d+\.\d+");
+    }
+
+    [Test]
+    [Arguments(new[] { "--", "--version" }, "--version")]
     [Arguments(new[] { "--resume" }, "--resume")]
     [Arguments(new[] { "--", "--help" }, "--help")]
     [Arguments(new[] { "-p", "hello" }, "-p hello")]
