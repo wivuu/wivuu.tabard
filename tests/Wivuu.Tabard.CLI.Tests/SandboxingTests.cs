@@ -441,18 +441,23 @@ public class SandboxingTests
     [Test]
     public async Task GitIdentity_prefers_the_environment()
     {
-        var before = Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL");
+        // Both halves: an account with no full name, like a CI runner's, gives git no name to
+        // fall back on, and 'git var' refuses an identity without one.
+        var name = Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME");
+        var email = Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL");
+        Environment.SetEnvironmentVariable("GIT_AUTHOR_NAME", "Set Name");
         Environment.SetEnvironmentVariable("GIT_AUTHOR_EMAIL", "set@example.com");
 
         try
         {
-            await Assert
-                .That(Sandboxing.GitIdentity(Sandbox.Scratch()))
-                .Contains("GIT_AUTHOR_EMAIL=set@example.com");
+            var identity = Sandboxing.GitIdentity(Sandbox.Scratch());
+            await Assert.That(identity).Contains("GIT_AUTHOR_NAME=Set Name");
+            await Assert.That(identity).Contains("GIT_AUTHOR_EMAIL=set@example.com");
         }
         finally
         {
-            Environment.SetEnvironmentVariable("GIT_AUTHOR_EMAIL", before);
+            Environment.SetEnvironmentVariable("GIT_AUTHOR_NAME", name);
+            Environment.SetEnvironmentVariable("GIT_AUTHOR_EMAIL", email);
         }
     }
 
@@ -470,7 +475,10 @@ public class SandboxingTests
         await Assert
             .That(() => Sandboxing.CheckWorkspace(Paths.ProfilesRoot))
             .Throws<InvalidOperationException>();
-        await Assert.That(() => Sandboxing.CheckWorkspace("/")).Throws<InvalidOperationException>();
+        // The root of the home's own drive: on Windows "/" is the current one, which need not be.
+        await Assert
+            .That(() => Sandboxing.CheckWorkspace(Path.GetPathRoot(Sandbox.Home)!))
+            .Throws<InvalidOperationException>();
     }
 
     [Test]
