@@ -1,3 +1,6 @@
+using System.Text.Encodings.Web;
+using System.Text.Json;
+
 namespace Wivuu.Tabard.Cli;
 
 /// <summary>Where a new profile's configuration is copied from.</summary>
@@ -6,9 +9,10 @@ namespace Wivuu.Tabard.Cli;
 internal sealed record CopySource(string Label, string Dir);
 
 /// <summary>
-/// Starts a new profile from another one's configuration: settings, instructions, hooks, plugins,
-/// skills, custom providers. Never its identity or its past - logins, account files, history and
-/// sessions stay where they are, so the new profile signs in on its own, as every profile does.
+/// Starts a new profile as a copy of another one's setup: settings, instructions, hooks, plugins,
+/// skills, custom providers, MCP servers and its login, so the new profile is signed in to the same
+/// account from its first launch. Never its past - history, sessions, caches and usage stats stay
+/// where they are.
 /// </summary>
 internal static class ProfileCopy
 {
@@ -17,13 +21,42 @@ internal static class ProfileCopy
     /// <see cref="Sandboxing.ReadOnlyPaths"/> already covers (settings.json, CLAUDE.md, hooks,
     /// plugins, commands, agents, skills, output-styles and loose scripts).
     /// </summary>
-    private static readonly string[] ClaudeExtras = ["keybindings.json"];
+    private static readonly string[] ClaudeExtras = ["keybindings.json", ".credentials.json"];
 
-    /// <summary>pi's configuration. auth.json holds its logins and keys, and sessions/, bin/ and
-    /// install/ are history and pi's own tooling, so none of those come along.</summary>
+    /// <summary>What of .claude.json comes along: the account, the API key login, onboarding (so it
+    /// is not asked again for an account that has done it) and the user-scope MCP servers. The rest
+    /// is usage stats, caches and announcements.</summary>
+    private static readonly string[] ClaudeJsonKeys =
+    [
+        "oauthAccount",
+        "primaryApiKey",
+        "customApiKeyResponses",
+        "hasCompletedOnboarding",
+        "lastOnboardingVersion",
+        "mcpServers",
+    ];
+
+    /// <summary>What of each project's entry in .claude.json comes along: its local-scope MCP
+    /// servers, which .mcp.json servers were approved, and whether the folder is trusted. The rest
+    /// is the last session's stats.</summary>
+    private static readonly string[] ClaudeProjectKeys =
+    [
+        "mcpServers",
+        "enabledMcpjsonServers",
+        "disabledMcpjsonServers",
+        "mcpContextUris",
+        "allowedTools",
+        "hasTrustDialogAccepted",
+        "hasClaudeMdExternalIncludesApproved",
+        "hasClaudeMdExternalIncludesWarningShown",
+    ];
+
+    /// <summary>pi's setup, its logins (auth.json) included. sessions/, bin/ and install/ are
+    /// history and pi's own tooling, so none of those come along.</summary>
     private static readonly string[] PiEntries =
     [
         "settings.json",
+        "auth.json",
         "models.json",
         "keybindings.json",
         "mcp.json",
@@ -136,6 +169,21 @@ internal static class ProfileCopy
             }
         }
 
+        if (harness is Harness.Claude)
+        {
+            if (
+                CopyClaudeJson(
+                    Path.Combine(from, ".claude.json"),
+                    Path.Combine(to, ".claude.json")
+                ) is
+                { } problem
+            )
+                warnings.Add(problem);
+
+            if (Keychain.CopyLogin(from, to, sourceIsHome: IsHome(source.Dir)) is { } keychain)
+                warnings.Add(keychain);
+        }
+
         foreach (var json in JsonToRepoint(to))
         {
             try
@@ -163,6 +211,100 @@ internal static class ProfileCopy
         }
 
         return warnings;
+    }
+
+    private static bool IsHome(string dir) =>
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir)),
+            Path.TrimEndingDirectorySeparator(Paths.ClaudeDir),
+            StringComparison.Ordinal
+        );
+
+    /// <summary>
+    /// The parts of .claude.json in <see cref="ClaudeJsonKeys"/> and, per project,
+    /// <see cref="ClaudeProjectKeys"/>, written 0600 like Claude Code writes it - it names the
+    /// account and can hold an API key. Read as a stream: this file reaches tens of megabytes.
+    /// Returns a problem to report, or null.
+    /// </summary>
+    private static string? CopyClaudeJson(string source, string target)
+    {
+        try
+        {
+            if (!File.Exists(source))
+                return null;
+
+            using var stream = File.OpenRead(source);
+            using var doc = JsonDocument.Parse(stream);
+            if (doc.RootElement.ValueKind is not JsonValueKind.Object)
+                return null;
+
+            using (var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write))
+            {
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(target, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+                using var writer = new Utf8JsonWriter(
+                    output,
+                    new JsonWriterOptions
+                    {
+                        Indented = true,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    }
+                );
+
+                writer.WriteStartObject();
+
+                foreach (var property in doc.RootElement.EnumerateObject())
+                {
+                    if (ClaudeJsonKeys.Contains(property.Name, StringComparer.Ordinal))
+                    {
+                        property.WriteTo(writer);
+                        continue;
+                    }
+
+                    if (
+                        property.NameEquals("projects")
+                        && property.Value.ValueKind is JsonValueKind.Object
+                    )
+                    {
+                        writer.WritePropertyName("projects");
+                        writer.WriteStartObject();
+
+                        foreach (var project in property.Value.EnumerateObject())
+                        {
+                            if (project.Value.ValueKind is not JsonValueKind.Object)
+                                continue;
+
+                            var kept = project
+                                .Value.EnumerateObject()
+                                .Where(p =>
+                                    ClaudeProjectKeys.Contains(p.Name, StringComparer.Ordinal)
+                                )
+                                .ToList();
+
+                            if (kept.Count == 0)
+                                continue;
+
+                            writer.WritePropertyName(project.Name);
+                            writer.WriteStartObject();
+                            foreach (var p in kept)
+                                p.WriteTo(writer);
+                            writer.WriteEndObject();
+                        }
+
+                        writer.WriteEndObject();
+                    }
+                }
+
+                writer.WriteEndObject();
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return $"could not copy the account and MCP servers from .claude.json ({ex.Message}).";
+        }
     }
 
     private static string ClaudeDirPrefix =>

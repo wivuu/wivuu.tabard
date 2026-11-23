@@ -77,7 +77,7 @@ internal static class Wizard
             .. sources.Select(s => new Choice<CopySource?>(
                 s,
                 $"Copy {s.Label}",
-                "settings, instructions, plugins and skills - not its login or history"
+                "its login, settings, MCP servers, plugins and skills - not its history"
             )),
         ];
 

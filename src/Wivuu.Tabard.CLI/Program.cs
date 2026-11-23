@@ -472,7 +472,7 @@ internal static class Cli
             Console.Error.WriteLine($"tabard: {warning}");
 
         Console.Error.WriteLine(
-            $"tabard: copied {source.Label}'s configuration into '{profile.Name}' - not its login or history."
+            $"tabard: copied {source.Label}'s login and configuration into '{profile.Name}' - not its history."
         );
     }
 
@@ -1006,8 +1006,8 @@ internal static class Cli
             launch pi is saved in ~/.tabard/harnesses.
 
             'tabard add <name> --pi' makes a pi profile without asking.
-            'tabard add <name> --from <profile>' starts it with that profile's settings, hooks,
-            plugins and skills - never its login or history. For pi, '--from pi' copies your own
+            'tabard add <name> --from <profile>' starts it with that profile's login, settings,
+            MCP servers, hooks, plugins and skills - never its history. For pi, '--from pi' copies your own
             ~/.pi/agent setup.
             'tabard add <name> --openrouter' skips the provider question; see
             'tabard openrouter help' for the rest.

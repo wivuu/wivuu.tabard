@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Wivuu.Tabard.Cli.Tests;
 
 [NotInParallel]
@@ -6,9 +8,9 @@ public class ProfileCopyTests
     [Before(HookType.Test)]
     public void StartFromABareHome() => Sandbox.Reset();
 
-    /// <summary>Configuration comes along; logins, account and history never do.</summary>
+    /// <summary>Configuration and the login come along; history never does.</summary>
     [Test]
-    public async Task Copy_takes_the_configuration_and_leaves_the_identity()
+    public async Task Copy_takes_the_setup_and_login_but_not_history()
     {
         var from = ProfileStore.Create("work");
         File.WriteAllText(Path.Combine(from.Dir, "settings.json"), "{}");
@@ -31,7 +33,15 @@ public class ProfileCopyTests
         await Assert.That(warnings).IsEmpty();
         await Assert
             .That(Directory.EnumerateFileSystemEntries(to.Dir).Select(p => Path.GetFileName(p)!))
-            .IsEquivalentTo(["settings.json", "CLAUDE.md", "keybindings.json", "skills"]);
+            .IsEquivalentTo([
+                "settings.json",
+                "CLAUDE.md",
+                "keybindings.json",
+                "skills",
+                ".credentials.json",
+                ".claude.json",
+            ]);
+        await Assert.That(File.ReadAllText(to.CredentialsFile)).IsEqualTo("secret");
         await Assert.That(File.Exists(Path.Combine(to.Dir, "skills", "mine", "SKILL.md"))).IsTrue();
     }
 
@@ -69,7 +79,7 @@ public class ProfileCopyTests
         Directory.CreateDirectory(ProfileCopy.PiHome);
         File.WriteAllText(Path.Combine(ProfileCopy.PiHome, "settings.json"), "{}");
         File.WriteAllText(Path.Combine(ProfileCopy.PiHome, "models.json"), "{}");
-        File.WriteAllText(Path.Combine(ProfileCopy.PiHome, "auth.json"), "secret");
+        File.WriteAllText(Path.Combine(ProfileCopy.PiHome, "auth.json"), "{}");
         Directory.CreateDirectory(Path.Combine(ProfileCopy.PiHome, "sessions"));
         Directory.CreateDirectory(Path.Combine(ProfileCopy.PiHome, "bin"));
 
@@ -78,7 +88,72 @@ public class ProfileCopyTests
 
         await Assert
             .That(Directory.EnumerateFileSystemEntries(to.Dir).Select(p => Path.GetFileName(p)!))
-            .IsEquivalentTo(["settings.json", "models.json"]);
+            .IsEquivalentTo(["settings.json", "models.json", "auth.json"]);
+    }
+
+    /// <summary>The account and every MCP server come along; usage stats and caches do not.</summary>
+    [Test]
+    public async Task Copy_keeps_the_account_and_mcp_servers_from_claude_json()
+    {
+        var from = ProfileStore.Create("work");
+        File.WriteAllText(
+            from.ClaudeJsonFile,
+            """
+            {
+              "oauthAccount": { "emailAddress": "me@example.com" },
+              "hasCompletedOnboarding": true,
+              "mcpServers": { "user": { "command": "u" } },
+              "numStartups": 40,
+              "cachedFeatureFlags": { "x": 1 },
+              "projects": {
+                "/code/app": {
+                  "mcpServers": { "local": { "command": "l" } },
+                  "enabledMcpjsonServers": ["team"],
+                  "hasTrustDialogAccepted": true,
+                  "lastCost": 3.2,
+                  "lastSessionId": "abc"
+                },
+                "/code/stats-only": { "lastCost": 1 }
+              }
+            }
+            """
+        );
+
+        var to = ProfileStore.Create("job");
+        ProfileCopy.Copy(Harness.Claude, ProfileCopy.Resolve("work", Harness.Claude), to.Dir);
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(to.ClaudeJsonFile));
+        var root = doc.RootElement;
+        await Assert
+            .That(root.EnumerateObject().Select(p => p.Name))
+            .IsEquivalentTo(["oauthAccount", "hasCompletedOnboarding", "mcpServers", "projects"]);
+
+        var projects = root.GetProperty("projects");
+        await Assert
+            .That(projects.EnumerateObject().Select(p => p.Name))
+            .IsEquivalentTo(["/code/app"]);
+        await Assert
+            .That(projects.GetProperty("/code/app").EnumerateObject().Select(p => p.Name))
+            .IsEquivalentTo(["mcpServers", "enabledMcpjsonServers", "hasTrustDialogAccepted"]);
+        await Assert.That(ProfileStore.Find("job")!.Describe()).Contains("me@example.com");
+
+        if (!OperatingSystem.IsWindows())
+            await Assert
+                .That(File.GetUnixFileMode(to.ClaudeJsonFile))
+                .IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
+    /// <summary>The service Claude Code saves a profile's macOS login under, checked against one
+    /// it really made for ~/.tabard/profiles/personal.</summary>
+    [Test]
+    public async Task Keychain_service_hashes_the_config_dir()
+    {
+        await Assert
+            .That(Keychain.ServiceFor("/Users/erik/.tabard/profiles/personal"))
+            .IsEqualTo("Claude Code-credentials-d5edd08c");
+        await Assert
+            .That(Keychain.ServiceFor("/anything", home: true))
+            .IsEqualTo("Claude Code-credentials");
     }
 
     [Test]

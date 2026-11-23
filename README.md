@@ -279,14 +279,22 @@ tabard add job --from work        # Claude Code, starting from 'work'
 tabard add local --pi --from pi   # pi, starting from ~/.pi/agent
 ```
 
-Only configuration is copied: for Claude Code that is `settings.json`, `CLAUDE.md`, `keybindings.json`,
-`hooks/`, `plugins/`, `commands/`, `agents/`, `skills/`, `output-styles/` and loose scripts; for pi,
-`settings.json`, `models.json`, `keybindings.json`, `mcp.json`, `AGENTS.md`, the system prompt
-files, `extensions/`, `skills/`, `prompts/` and `themes/`. Logins (`.credentials.json`, `auth.json`),
-`.claude.json` (your account, per-project state and user-scope MCP servers) and history stay behind,
-so the new profile signs in on its own. Paths in the copied JSON that named the old profile, such as
-plugin install locations, are pointed at the new one. Copying an OpenRouter profile into one that
-logs in with Anthropic drops the OpenRouter settings and key.
+The copy is a working setup, signed in to the same account from its first launch:
+
+- **Claude Code:** `settings.json`, `CLAUDE.md`, `keybindings.json`, `hooks/`, `plugins/`, `commands/`,
+  `agents/`, `skills/`, `output-styles/` and loose scripts; the login, from `.credentials.json` and,
+  on macOS, the Keychain item Claude Code keeps it in; and from `.claude.json`, the account,
+  onboarding, user-scope MCP servers and, per project, local-scope MCP servers, approved `.mcp.json`
+  servers, allowed tools and folder trust.
+- **pi:** `settings.json`, `auth.json`, `models.json`, `keybindings.json`, `mcp.json`, `AGENTS.md`,
+  the system prompt files, `extensions/`, `skills/`, `prompts/` and `themes/`.
+
+History, sessions, caches and usage stats stay behind. Paths in the copied JSON that named the old
+profile, such as plugin install locations, are pointed at the new one. Copying an OpenRouter profile
+into one that logs in with Anthropic drops the OpenRouter settings and key.
+
+Two profiles copied from one login share it: Claude Code rotates OAuth tokens as it refreshes them,
+so if one profile later says its login is invalid, `/login` there again.
 
 ## pi profiles
 
