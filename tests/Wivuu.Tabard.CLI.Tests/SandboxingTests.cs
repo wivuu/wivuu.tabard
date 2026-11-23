@@ -96,11 +96,9 @@ public class SandboxingTests
     [Test]
     public async Task SandboxName_is_stable_and_names_the_profile_and_folder()
     {
-        var name = Sandboxing.SandboxName("Work", "/Users/me/projects/My App");
+        var name = Sbx.SandboxName("Work", "/Users/me/projects/My App");
 
-        await Assert
-            .That(name)
-            .IsEqualTo(Sandboxing.SandboxName("Work", "/Users/me/projects/My App"));
+        await Assert.That(name).IsEqualTo(Sbx.SandboxName("Work", "/Users/me/projects/My App"));
         await Assert.That(name).StartsWith("tabard-work-my-app-");
     }
 
@@ -109,13 +107,11 @@ public class SandboxingTests
     [Test]
     public async Task SandboxName_differs_by_profile_and_by_folder()
     {
-        var name = Sandboxing.SandboxName("work", "/projects/app");
+        var name = Sbx.SandboxName("work", "/projects/app");
 
-        await Assert.That(Sandboxing.SandboxName("personal", "/projects/app")).IsNotEqualTo(name);
-        await Assert.That(Sandboxing.SandboxName("work", "/elsewhere/app")).IsNotEqualTo(name);
-        await Assert
-            .That(Sandboxing.SandboxName("a_b", "/p"))
-            .IsNotEqualTo(Sandboxing.SandboxName("a-b", "/p"));
+        await Assert.That(Sbx.SandboxName("personal", "/projects/app")).IsNotEqualTo(name);
+        await Assert.That(Sbx.SandboxName("work", "/elsewhere/app")).IsNotEqualTo(name);
+        await Assert.That(Sbx.SandboxName("a_b", "/p")).IsNotEqualTo(Sbx.SandboxName("a-b", "/p"));
     }
 
     /// <summary>sbx's rules: 63 at most, letters, digits and hyphens here, alphanumeric at the ends.
@@ -130,7 +126,7 @@ public class SandboxingTests
     [Arguments("---", "/")]
     public async Task SandboxName_is_one_sbx_accepts(string profile, string workspace)
     {
-        var name = Sandboxing.SandboxName(profile, workspace);
+        var name = Sbx.SandboxName(profile, workspace);
 
         await Assert.That(name.Length).IsLessThanOrEqualTo(63);
         await Assert
@@ -166,7 +162,7 @@ public class SandboxingTests
         var dir = Sandbox.Scratch();
         File.WriteAllText(Path.Combine(dir, "settings.json"), "{}");
 
-        var args = Sandboxing.RunArgs(
+        var args = Sbx.RunArgs(
             "tabard-x",
             dir,
             Folder("/projects/app"),
@@ -190,7 +186,7 @@ public class SandboxingTests
                     $"{Path.Combine(dir, "settings.json")}:ro",
                     "--",
                     "--settings",
-                    Sandboxing.KeepPrompts,
+                    Sbx.KeepPrompts,
                     "--continue",
                 }
             );
@@ -203,7 +199,7 @@ public class SandboxingTests
     {
         var dir = Sandbox.Scratch();
 
-        var args = Sandboxing.RunArgs("tabard-x", dir, Folder("/projects/app"), exists: true, []);
+        var args = Sbx.RunArgs("tabard-x", dir, Folder("/projects/app"), exists: true, []);
 
         await Assert
             .That(args)
@@ -217,7 +213,7 @@ public class SandboxingTests
                     $"CLAUDE_CONFIG_DIR={dir}",
                     "--",
                     "--settings",
-                    Sandboxing.KeepPrompts,
+                    Sbx.KeepPrompts,
                 }
             );
     }
@@ -234,15 +230,9 @@ public class SandboxingTests
         var claudeArgs = line.Split(' ');
         var dir = Sandbox.Scratch();
 
-        var args = Sandboxing.RunArgs(
-            "tabard-x",
-            dir,
-            Folder("/projects/app"),
-            exists: true,
-            claudeArgs
-        );
+        var args = Sbx.RunArgs("tabard-x", dir, Folder("/projects/app"), exists: true, claudeArgs);
 
-        await Assert.That(args).DoesNotContain(Sandboxing.KeepPrompts);
+        await Assert.That(args).DoesNotContain(Sbx.KeepPrompts);
         await Assert.That(args.TakeLast(claudeArgs.Length)).IsEquivalentTo(claudeArgs);
     }
 
@@ -251,7 +241,7 @@ public class SandboxingTests
     {
         var dir = Sandbox.Scratch();
 
-        var args = Sandboxing.RunArgs(
+        var args = Sbx.RunArgs(
             "tabard-x",
             dir,
             Folder("/projects/app"),
@@ -259,7 +249,7 @@ public class SandboxingTests
             ["--permission-mode", "acceptEdits"]
         );
 
-        await Assert.That(args).Contains(Sandboxing.KeepPrompts);
+        await Assert.That(args).Contains(Sbx.KeepPrompts);
     }
 
     [Test]
@@ -327,7 +317,7 @@ public class SandboxingTests
             ["/projects/app/.git/hooks"]
         );
 
-        var args = Sandboxing.RunArgs(
+        var args = Sbx.RunArgs(
             "tabard-x",
             dir,
             workspace,
@@ -364,7 +354,7 @@ public class SandboxingTests
     [Test]
     public async Task RunArgs_reattaching_leaves_the_image_out()
     {
-        var args = Sandboxing.RunArgs(
+        var args = Sbx.RunArgs(
             "tabard-x",
             Sandbox.Scratch(),
             Folder("/projects/app"),
@@ -381,11 +371,11 @@ public class SandboxingTests
     [Test]
     public async Task SandboxName_changes_with_the_image_only_when_there_is_one()
     {
-        var plain = Sandboxing.SandboxName("work", "/projects/app");
+        var plain = Sbx.SandboxName("work", "/projects/app");
 
-        await Assert.That(Sandboxing.SandboxName("work", "/projects/app", null)).IsEqualTo(plain);
+        await Assert.That(Sbx.SandboxName("work", "/projects/app", null)).IsEqualTo(plain);
         await Assert
-            .That(Sandboxing.SandboxName("work", "/projects/app", "my/image:1"))
+            .That(Sbx.SandboxName("work", "/projects/app", "my/image:1"))
             .IsNotEqualTo(plain);
     }
 
@@ -394,27 +384,25 @@ public class SandboxingTests
     {
         var work = ProfileStore.Create("work");
 
-        Sandboxing.SetImage("work", "my/image:1");
-        await Assert.That(Sandboxing.ImageOf("work")).IsEqualTo("my/image:1");
+        Sbx.SetImage("work", "my/image:1");
+        await Assert.That(Sbx.ImageOf("work")).IsEqualTo("my/image:1");
 
         var renamed = ProfileStore.Rename(work, "job").Profile;
-        await Assert.That(Sandboxing.ImageOf("job")).IsEqualTo("my/image:1");
-        await Assert.That(Sandboxing.ImageOf("work")).IsNull();
+        await Assert.That(Sbx.ImageOf("job")).IsEqualTo("my/image:1");
+        await Assert.That(Sbx.ImageOf("work")).IsNull();
 
         ProfileStore.Delete(renamed);
-        await Assert.That(Sandboxing.Images()).IsEmpty();
+        await Assert.That(Sbx.Images()).IsEmpty();
 
-        Sandboxing.SetImage("other", "x");
-        Sandboxing.SetImage("other", null);
-        await Assert.That(Sandboxing.ImageOf("other")).IsNull();
+        Sbx.SetImage("other", "x");
+        Sbx.SetImage("other", null);
+        await Assert.That(Sbx.ImageOf("other")).IsNull();
     }
 
     [Test]
     public async Task SetImage_refuses_references_with_spaces()
     {
-        await Assert
-            .That(() => Sandboxing.SetImage("work", "my image"))
-            .Throws<ArgumentException>();
+        await Assert.That(() => Sbx.SetImage("work", "my image")).Throws<ArgumentException>();
     }
 
     [Test]
@@ -508,7 +496,7 @@ public class SandboxingTests
     }
 
     /// <summary>What sbx's Claude setup writes into the profile it is handed, and the reason
-    /// <see cref="Sandboxing.ForgetGateway"/> exists.</summary>
+    /// <see cref="Sbx.ForgetGateway"/> exists.</summary>
     private const string WithGateway = """
         {
           "numStartups": 42,
@@ -531,7 +519,7 @@ public class SandboxingTests
         var file = Path.Combine(Sandbox.Scratch(), ".claude.json");
         File.WriteAllText(file, WithGateway);
 
-        await Assert.That(Sandboxing.ForgetGateway(file)).IsNull();
+        await Assert.That(Sbx.ForgetGateway(file)).IsNull();
 
         var text = File.ReadAllText(file);
         await Assert.That(text).DoesNotContain("docker.internal");
@@ -549,7 +537,7 @@ public class SandboxingTests
             """{ "mcpServers": { "mine": { "url": "https://example.com/mcp" } } }""";
         File.WriteAllText(file, original);
 
-        await Assert.That(Sandboxing.ForgetGateway(file)).IsNull();
+        await Assert.That(Sbx.ForgetGateway(file)).IsNull();
         await Assert.That(File.ReadAllText(file)).IsEqualTo(original);
     }
 
@@ -563,7 +551,7 @@ public class SandboxingTests
         File.WriteAllText(file, WithGateway);
         File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
 
-        Sandboxing.ForgetGateway(file);
+        Sbx.ForgetGateway(file);
 
         await Assert
             .That(File.GetUnixFileMode(file))
@@ -576,7 +564,7 @@ public class SandboxingTests
         var file = Path.Combine(Sandbox.Scratch(), ".claude.json");
         File.WriteAllText(file, "{ not json");
 
-        await Assert.That(Sandboxing.ForgetGateway(file)).IsNotNull();
+        await Assert.That(Sbx.ForgetGateway(file)).IsNotNull();
         await Assert.That(File.ReadAllText(file)).IsEqualTo("{ not json");
     }
 }

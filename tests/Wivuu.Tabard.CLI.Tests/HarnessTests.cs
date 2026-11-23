@@ -121,22 +121,6 @@ public class HarnessTests
             .IsFalse();
     }
 
-    /// <summary>Until a sandboxed pi exists, a pi profile marked sandboxed must refuse rather than
-    /// quietly run outside one.</summary>
-    [Test]
-    public async Task A_sandboxed_pi_profile_refuses_to_launch()
-    {
-        using var pi = new FakeClaude("pi", "PI_CODING_AGENT_DIR");
-        ProfileStore.Create("local");
-        Harnesses.Set("local", Harness.Pi);
-        Sandboxing.Set("local", true);
-
-        await Assert
-            .That(() => global::Cli.Run(["use", "local"]))
-            .Throws<InvalidOperationException>();
-        await Assert.That(pi.Launches).IsEmpty();
-    }
-
     /// <summary>The shell function makes the file and names it; 'switch' fills it in with the
     /// one variable a bare 'pi' reads.</summary>
     [Test]

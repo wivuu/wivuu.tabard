@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace Wivuu.Tabard.Cli;
 
@@ -9,18 +10,7 @@ internal static class Launcher
         var harness = profile.Harness;
 
         if (sandboxed)
-        {
-            // Refused rather than launched directly: whoever marked the profile sandboxed decided
-            // it should not run loose on this machine.
-            if (harness is not Harness.Claude)
-                throw new InvalidOperationException(
-                    $"'{profile.Name}' is set to launch {Harnesses.DisplayName(harness)} in a sandbox, "
-                        + "which tabard does not support yet. Run "
-                        + $"'tabard sandbox off {profile.Name}' to launch it directly."
-                );
-
             return LaunchSandboxed(profile, claudeArgs);
-        }
 
         var command = Harnesses.Executable(harness);
         var executable =
@@ -36,76 +26,47 @@ internal static class Launcher
         // literally by some Claude Code versions, stranding credentials under the CWD.
         psi.Environment[Harnesses.ConfigVariable(harness)] = Path.GetFullPath(profile.Dir);
 
-        return Run(psi, command);
+        return Run(psi, command, profile);
     }
 
     /// <summary>
-    /// Claude Code inside a Docker sandbox. Every refusal here happens before anything starts: a
-    /// profile marked as sandboxed must never fall back to launching directly, because whoever
-    /// marked it decided it should not run loose on this machine.
+    /// The agent inside the profile's kind of sandbox. Every refusal happens in Prepare, before
+    /// anything starts: a profile marked as sandboxed must never fall back to launching directly,
+    /// because whoever marked it decided it should not run loose on this machine.
     /// </summary>
-    private static int LaunchSandboxed(Profile profile, IReadOnlyList<string> claudeArgs)
+    private static int LaunchSandboxed(Profile profile, IReadOnlyList<string> agentArgs)
     {
-        // The sandbox sees the host's paths at the same paths, and a Windows path means nothing to
-        // the Linux inside it.
-        if (OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException(
-                $"'{profile.Name}' is set to launch in a sandbox, which tabard does not support on "
-                    + $"Windows yet. Run 'tabard sandbox off {profile.Name}' to launch it directly."
-            );
-
-        var executable =
-            Which(Sandboxing.Executable)
-            ?? throw new FileNotFoundException(
-                $"'{profile.Name}' is set to launch in a Docker sandbox, but 'sbx' is not on PATH. "
-                    + "Install it with 'brew install docker/tap/sbx', or run "
-                    + $"'tabard sandbox off {profile.Name}' to launch it directly."
-            );
-
-        var cwd = Directory.GetCurrentDirectory();
-        var warnings = new List<string>();
-        var workspace = Sandboxing.ResolveWorkspace(cwd, warnings);
-        Sandboxing.Prepare(profile.Dir);
-
-        var image = Sandboxing.ImageOf(profile.Name);
-        var sandbox = Sandboxing.SandboxName(profile.Name, workspace.Root, image);
-        var exists = Sandboxing.Exists(executable, sandbox);
-
-        foreach (var warning in warnings)
-            Console.Error.WriteLine($"tabard: {warning}");
-
-        Console.Error.WriteLine(
-            exists ? $"tabard: launching '{profile.Name}' in sandbox {sandbox}."
-            : image is null ? $"tabard: creating sandbox {sandbox} for '{profile.Name}'."
-            : $"tabard: creating sandbox {sandbox} for '{profile.Name}' from {image}."
+        var sandbox = Sandboxes.For(profile);
+        var launch = sandbox.Prepare(
+            profile,
+            agentArgs,
+            new SandboxRequest(Directory.GetCurrentDirectory(), Sandboxes.HostPorts(profile))
         );
 
-        var psi = BuildStartInfo(
-            executable,
-            Sandboxing.RunArgs(
-                sandbox,
-                profile.Dir,
-                workspace,
-                exists,
-                claudeArgs,
-                image,
-                Sandboxing.GitIdentity(cwd)
-            )
-        );
-
-        var code = Run(psi, Sandboxing.Executable);
-
-        if (Sandboxing.ForgetGateway(profile.ClaudeJsonFile) is { } problem)
-            Console.Error.WriteLine($"tabard: {problem}");
-
+        var code = Run(launch.StartInfo, launch.Command, profile);
+        launch.AfterExit?.Invoke();
         return code;
     }
 
-    private static int Run(ProcessStartInfo psi, string command)
+    private static int Run(ProcessStartInfo psi, string command, Profile profile)
     {
         // Ctrl+C belongs to the child; tabard just waits for it to finish. Registered before the
         // start so there is no window where an early ^C kills tabard out from under the child.
         Console.CancelKeyPress += (_, e) => e.Cancel = true;
+
+        // Started first so whatever the agent talks to is already coming up when it asks. Stopped
+        // however tabard leaves: the agent exiting, failing to start, or the terminal closing.
+        using var companion = Companions.Start(profile);
+        using var hangup = companion is null
+            ? null
+            : PosixSignalRegistration.Create(PosixSignal.SIGHUP, _ => companion.Dispose());
+        using var terminate = companion is null
+            ? null
+            : PosixSignalRegistration.Create(PosixSignal.SIGTERM, _ => companion.Dispose());
+
+        // Not launching at all: ^C while waiting, or the command alongside died before answering.
+        if (Companions.WaitFor(profile, companion) is { } refused)
+            return refused;
 
         using var proc =
             Process.Start(psi)
