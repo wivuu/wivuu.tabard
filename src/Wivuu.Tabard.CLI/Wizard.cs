@@ -21,11 +21,14 @@ internal static class Wizard
     /// </summary>
     public static string? ChooseName()
     {
-        var initial = ProfileStore.SuggestName();
+        var suggestion = ProfileStore.SuggestName();
+        string? retry = null;
 
         while (true)
         {
-            if (Prompt.Text("Profile name", initial) is not { } name)
+            // The suggestion is what enter takes, not text to delete first. A name that was
+            // refused comes back typed in, so it can be fixed rather than retyped.
+            if (Prompt.Text("Profile name", retry, fallback: suggestion) is not { } name)
                 return null;
 
             try
@@ -36,7 +39,7 @@ internal static class Wizard
             catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
             {
                 Console.Error.WriteLine($"tabard: {ex.Message}");
-                initial = name;
+                retry = name;
             }
         }
     }
