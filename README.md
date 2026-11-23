@@ -329,9 +329,10 @@ Things to know:
   ask for it the way you would directly — `tabard use work -- --dangerously-skip-permissions` (or
   `--permission-mode bypassPermissions`) — and tabard leaves the setting out. Nothing is written
   to the profile, so direct launches are unaffected.
-- **Your git identity comes along.** The sandbox has its own home, so tabard passes your
-  `user.name` and `user.email` (as git sees them in this folder, `includeIf` and all) as
-  `GIT_AUTHOR_*` and `GIT_COMMITTER_*` on every launch. Pushing still needs credentials inside: an
+- **Your git identity comes along.** The sandbox has its own home, so tabard asks `git var` here
+  what a commit in this folder would record (config, `includeIf`, `GIT_AUTHOR_*`, or the identity
+  git makes up from your account) and passes it as `GIT_AUTHOR_*` and `GIT_COMMITTER_*` on every
+  launch. Pushing still needs credentials inside: an
   SSH key in your agent (sbx forwards it), or `gh auth login` in the sandbox.
 - **Log in once inside the sandbox.** On macOS a direct launch keeps its login in the Keychain,
   which the sandbox cannot read, so the first sandboxed launch of an Anthropic profile asks for

@@ -505,35 +505,52 @@ internal static class Sandboxing
 
     /// <summary>
     /// Your git identity, for commits made inside the sandbox: its home is not yours, so it has
-    /// no ~/.gitconfig of yours to read. Asked of git in <paramref name="cwd"/>, so an includeIf
-    /// that gives this folder a work address still applies; GIT_AUTHOR_* and GIT_COMMITTER_* set
-    /// here win, as they would for git itself. Empty when git has nothing to say.
+    /// no ~/.gitconfig of yours to read. Asked of 'git var' in <paramref name="cwd"/>, which answers
+    /// with exactly what a commit made here would record - config, an includeIf for this folder,
+    /// GIT_AUTHOR_* in the environment, or the name and address git makes up from your account
+    /// when none of those says. Empty when git is missing or refuses (user.useConfigOnly).
     /// </summary>
     public static List<string> GitIdentity(string cwd)
     {
-        var name = GitConfig(cwd, "user.name");
-        var email = GitConfig(cwd, "user.email");
         var variables = new List<string>();
 
-        void Add(string variable, string? configured)
+        foreach (var role in new[] { "AUTHOR", "COMMITTER" })
         {
-            var value = Environment.GetEnvironmentVariable(variable) is { Length: > 0 } set
-                ? set
-                : configured;
+            if (ParseIdent(Git(cwd, "var", $"GIT_{role}_IDENT")) is not var (name, email))
+                continue;
 
-            if (value is { Length: > 0 } && value.AsSpan().IndexOfAny('\r', '\n') < 0)
-                variables.Add($"{variable}={value}");
+            variables.Add($"GIT_{role}_NAME={name}");
+            variables.Add($"GIT_{role}_EMAIL={email}");
         }
-
-        Add("GIT_AUTHOR_NAME", name);
-        Add("GIT_AUTHOR_EMAIL", email);
-        Add("GIT_COMMITTER_NAME", name);
-        Add("GIT_COMMITTER_EMAIL", email);
 
         return variables;
     }
 
-    private static string? GitConfig(string cwd, string key)
+    /// <summary>'Name &lt;email&gt; 1700000000 +0000' into its name and address.</summary>
+    internal static (string Name, string Email)? ParseIdent(string? ident)
+    {
+        if (ident is null)
+            return null;
+
+        var open = ident.IndexOf('<');
+        var close = ident.IndexOf('>', open + 1);
+        if (open < 0 || close < 0)
+            return null;
+
+        var name = ident[..open].Trim();
+        var email = ident[(open + 1)..close].Trim();
+
+        if (
+            name.Length == 0
+            || email.Length == 0
+            || $"{name}{email}".AsSpan().IndexOfAny('\r', '\n') >= 0
+        )
+            return null;
+
+        return (name, email);
+    }
+
+    private static string? Git(string cwd, params string[] args)
     {
         try
         {
@@ -548,9 +565,8 @@ internal static class Sandboxing
                 WorkingDirectory = cwd,
             };
 
-            psi.ArgumentList.Add("config");
-            psi.ArgumentList.Add("--get");
-            psi.ArgumentList.Add(key);
+            foreach (var arg in args)
+                psi.ArgumentList.Add(arg);
 
             using var proc = Process.Start(psi);
             if (proc is null)

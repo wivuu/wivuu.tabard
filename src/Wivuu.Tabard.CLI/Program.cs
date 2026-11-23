@@ -285,8 +285,9 @@ internal static class Cli
         Claude Code runs in a microVM that sees only the current folder - the whole git repository,
         when the folder is inside one - and the profile's own directory, each at the same path as
         here. One sandbox is made per profile and folder (or repository), and launching again goes
-        back into it, with whatever was installed in it. Your git user.name and user.email are
-        passed in, and the repository's .git/hooks and .git/config are read-only.
+        back into it, with whatever was installed in it. Your git identity, as a commit here
+        would record it, is passed in, and the repository's .git/hooks and .git/config are
+        read-only.
 
         An image is anything 'sbx run -t' takes - a snapshot saved with 'sbx template save', say,
         after installing the tools a project needs. It applies to sandboxes made from then on.

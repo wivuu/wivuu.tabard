@@ -418,6 +418,27 @@ public class SandboxingTests
     }
 
     [Test]
+    [Arguments(
+        "Ada Lovelace <ada@example.com> 1700000000 +0000",
+        "Ada Lovelace",
+        "ada@example.com"
+    )]
+    [Arguments("Me <me@host.local> 1 -0600", "Me", "me@host.local")]
+    public async Task ParseIdent_reads_git_vars_answer(string ident, string name, string email)
+    {
+        await Assert.That(Sandboxing.ParseIdent(ident)).IsEqualTo((name, email));
+    }
+
+    [Test]
+    [Arguments("no brackets")]
+    [Arguments(" <a@b> 1 +0000")]
+    [Arguments("Name <> 1 +0000")]
+    public async Task ParseIdent_refuses_what_it_cannot_read(string ident)
+    {
+        await Assert.That(Sandboxing.ParseIdent(ident)).IsNull();
+    }
+
+    [Test]
     public async Task GitIdentity_prefers_the_environment()
     {
         var before = Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL");
