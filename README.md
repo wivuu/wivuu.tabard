@@ -267,7 +267,8 @@ built-in list is shown instead and any slug can still be set with a flag.
 ## Sandboxed profiles
 
 A profile can launch Claude Code inside a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) —
-a microVM that sees the current folder and nothing else of your machine. It needs `sbx` (`brew install docker/tap/sbx`,
+a microVM that sees the current folder (the whole git repository, when the folder is inside one) and
+nothing else of your machine. It needs `sbx` (`brew install docker/tap/sbx`,
 then `sbx login`) and macOS or Linux.
 
 In the picker, `s` turns it on or off for the highlighted profile. A `■` beside a name means it is
@@ -279,13 +280,27 @@ tabard sandbox on work          # every launch of 'work' goes through a sandbox
 tabard sandbox off work         # back to launching directly
 tabard sandbox                  # which profiles are sandboxed
 tabard use work --no-sandbox    # just this once, either way round
+tabard sandbox image work my/dotnet:1   # make work's sandboxes from another image
+tabard sandbox image work --default     # back to sbx's own
 ```
 
 A sandboxed launch runs `sbx run claude` with the profile's directory as `CLAUDE_CONFIG_DIR`, the
 same as a direct launch, so login, history and settings are shared between the two. The current
 folder and the profile directory are mounted at the same paths they have on the host, which keeps
 the per-project entries in `.claude.json` lining up. There is one sandbox per profile and folder,
-named `tabard-<profile>-<folder>-<hash>`; launching again goes back into it.
+named `tabard-<profile>-<folder>-<hash>`; launching again goes back into it, with whatever was
+installed in it. Inside a git repository the "folder" is the repository's root: it is what gets
+mounted, so git finds its `.git` from any subfolder, and the session starts in the folder you
+launched from. A worktree's or submodule's `.git` file points somewhere else, and that git directory
+is mounted too. A repository that cannot be mounted (one rooted at your home directory, say) falls
+back to the folder alone, with a warning.
+
+**Images.** sbx's default image has git, `gh`, python, uv, docker and the like, but no .NET or Node.
+Rather than install a toolchain in every sandbox, install it once, save the sandbox with
+`sbx template save <sandbox> <tag>`, and point the profile at it with `tabard sandbox image`. Any
+image `sbx run -t` takes will do. The image is fixed when a sandbox is made, so choosing one makes
+new sandboxes from then on and leaves the old ones for `sbx rm`. The choice lives in
+`~/.tabard/images`, outside every profile.
 
 What the sandbox can and cannot touch:
 
@@ -295,7 +310,12 @@ What the sandbox can and cannot touch:
   hook that runs on your machine the next time the profile is launched directly. A missing
   `settings.json` is created empty first, because read-only only covers what exists. Changing a
   setting from inside the sandbox therefore does not stick — change it outside.
-- **Writable:** the current folder, and the rest of the profile — credentials, history and
+- **Read-only too:** the repository's `.git/hooks` and `.git/config`. Git runs hooks, and config can
+  name programs (`core.hooksPath`, `core.fsmonitor`, aliases), so either would let a sandbox plant
+  something that runs the next time you use git here. The cost is that git commands that write
+  config fail inside the sandbox: `git push -u`, `git remote add`, a checkout that sets up
+  tracking. Commit, branch and push work; set upstreams from outside.
+- **Writable:** the current folder (or repository), and the rest of the profile — credentials, history and
   `.claude.json` — which Claude Code has to update as it runs.
 - **The on/off list** is `~/.tabard/sandboxed`, outside every profile, so a sandbox cannot switch
   itself off. For the same reason tabard refuses to sandbox a folder that contains `~/.tabard`,
@@ -309,6 +329,10 @@ Things to know:
   ask for it the way you would directly — `tabard use work -- --dangerously-skip-permissions` (or
   `--permission-mode bypassPermissions`) — and tabard leaves the setting out. Nothing is written
   to the profile, so direct launches are unaffected.
+- **Your git identity comes along.** The sandbox has its own home, so tabard passes your
+  `user.name` and `user.email` (as git sees them in this folder, `includeIf` and all) as
+  `GIT_AUTHOR_*` and `GIT_COMMITTER_*` on every launch. Pushing still needs credentials inside: an
+  SSH key in your agent (sbx forwards it), or `gh auth login` in the sandbox.
 - **Log in once inside the sandbox.** On macOS a direct launch keeps its login in the Keychain,
   which the sandbox cannot read, so the first sandboxed launch of an Anthropic profile asks for
   `/login`. That login is written to `.credentials.json` in the profile and reused from then on.

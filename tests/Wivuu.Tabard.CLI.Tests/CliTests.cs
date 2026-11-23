@@ -372,6 +372,37 @@ public class CliTests
     }
 
     [Test]
+    public async Task Sandbox_image_sets_and_clears_a_profiles_image()
+    {
+        ProfileStore.Create("work");
+
+        await Assert.That(global::Cli.Run(["sandbox", "image", "work", "my/image:1"])).IsEqualTo(0);
+        await Assert.That(Sandboxing.ImageOf("work")).IsEqualTo("my/image:1");
+
+        await Assert.That(global::Cli.Run(["sandbox", "image", "work", "--default"])).IsEqualTo(0);
+        await Assert.That(Sandboxing.ImageOf("work")).IsNull();
+    }
+
+    [Test]
+    public async Task A_sandboxed_launch_uses_the_profiles_image()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var sbx = new FakeSbx();
+        ProfileStore.Create("work");
+        global::Cli.Run(["sandbox", "on", "work"]);
+        global::Cli.Run(["sandbox", "image", "work", "my/image:1"]);
+
+        await Assert.That(global::Cli.Run(["use", "work"])).IsEqualTo(0);
+
+        var run = sbx.Runs[0];
+        var at = run.ToList().IndexOf("-t");
+        await Assert.That(at).IsGreaterThan(0);
+        await Assert.That(run[at + 1]).IsEqualTo("my/image:1");
+    }
+
+    [Test]
     public async Task A_second_launch_goes_back_into_the_same_sandbox()
     {
         if (OperatingSystem.IsWindows())
@@ -381,20 +412,15 @@ public class CliTests
         using var sbx = new FakeSbx();
         ProfileStore.Create("work");
         global::Cli.Run(["sandbox", "on", "work"]);
-        sbx.Exists(Sandboxing.SandboxName("work", Directory.GetCurrentDirectory()));
+        // The tests run inside this repository, so the sandbox is named for its root.
+        var root = Sandboxing.ResolveWorkspace(Directory.GetCurrentDirectory(), []).Root;
+        sbx.Exists(Sandboxing.SandboxName("work", root));
 
         await Assert.That(global::Cli.Run(["use", "work"])).IsEqualTo(0);
 
         await Assert
             .That(sbx.Runs[0].Take(3))
-            .IsEquivalentTo(
-                new[]
-                {
-                    "run",
-                    "--name",
-                    Sandboxing.SandboxName("work", Directory.GetCurrentDirectory()),
-                }
-            );
+            .IsEquivalentTo(new[] { "run", "--name", Sandboxing.SandboxName("work", root) });
     }
 
     [Test]

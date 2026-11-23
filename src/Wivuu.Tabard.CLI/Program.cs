@@ -159,7 +159,8 @@ internal static class Cli
         return LaunchInto(profile, rest, sandbox);
     }
 
-    private const string SandboxUsage = "usage: tabard sandbox [on|off] [name]";
+    private const string SandboxUsage =
+        "usage: tabard sandbox [on|off] [name] | tabard sandbox image <name> [<image>|--default]";
 
     /// <summary>
     /// The picker's 's' key, for a script or a terminal without the picker. With no verb it reports,
@@ -178,6 +179,7 @@ internal static class Cli
             case []:
             {
                 var sandboxed = Sandboxing.Names();
+                var images = Sandboxing.Images();
                 var profiles = ProfileStore.List();
 
                 if (profiles.Count == 0)
@@ -189,15 +191,47 @@ internal static class Cli
                 foreach (var profile in profiles)
                 {
                     var on = sandboxed.Contains(profile.Name);
+                    var image = images.TryGetValue(profile.Name, out var set) ? $"  -  {set}" : "";
                     Console.WriteLine(
-                        $"{Sandboxing.Mark(on)} {profile.Name, -18}{(on ? "sandbox" : "direct")}"
+                        $"{Sandboxing.Mark(on)} {profile.Name, -18}{(on ? "sandbox" : "direct")}{image}"
                     );
                 }
 
                 return 0;
             }
 
-            case [var name] when !name.StartsWith('-') && name is not ("on" or "off"):
+            case ["image", var name]:
+            {
+                var profile = Require(name);
+                Console.WriteLine(
+                    Sandboxing.ImageOf(profile.Name) is { } image
+                        ? $"'{profile.Name}' makes its sandboxes from {image}."
+                        : $"'{profile.Name}' makes its sandboxes from sbx's default image."
+                );
+                return 0;
+            }
+
+            case ["image", var name, var image]:
+            {
+                var profile = Require(name);
+                var chosen = image is "--default" or "default" ? null : image;
+
+                using (ProfileStore.AcquireLock())
+                    Sandboxing.SetImage(profile.Name, chosen);
+
+                Console.Error.WriteLine(
+                    chosen is null
+                        ? $"tabard: '{profile.Name}' will make its sandboxes from sbx's default image."
+                        : $"tabard: '{profile.Name}' will make its sandboxes from {chosen}."
+                );
+                Console.Error.WriteLine(
+                    "tabard: sandboxes it already has keep their image; the next launch in each "
+                        + "folder makes a new one. Tidy the old ones with 'sbx ls' and 'sbx rm'."
+                );
+                return 0;
+            }
+
+            case [var name] when !name.StartsWith('-') && name is not ("on" or "off" or "image"):
             {
                 var profile = Require(name);
                 Console.WriteLine(
@@ -242,21 +276,28 @@ internal static class Cli
           tabard sandbox off <name>      Launch it directly again
           tabard use <name> --sandbox    Just this once, either way
           tabard use <name> --no-sandbox
+          tabard sandbox image <name> <image>      Make its sandboxes from another image
+          tabard sandbox image <name> --default    Back to sbx's own
 
         In the picker, 's' turns it on and off for the highlighted profile.
 
         A sandboxed launch runs 'sbx run claude' (Docker Sandboxes, brew install docker/tap/sbx).
-        Claude Code runs in a microVM that sees only the current folder and the profile's own
-        directory, each at the same path as here. One sandbox is made per profile and folder, and
-        launching again goes back into it.
+        Claude Code runs in a microVM that sees only the current folder - the whole git repository,
+        when the folder is inside one - and the profile's own directory, each at the same path as
+        here. One sandbox is made per profile and folder (or repository), and launching again goes
+        back into it, with whatever was installed in it. Your git user.name and user.email are
+        passed in, and the repository's .git/hooks and .git/config are read-only.
+
+        An image is anything 'sbx run -t' takes - a snapshot saved with 'sbx template save', say,
+        after installing the tools a project needs. It applies to sandboxes made from then on.
 
         Inside the sandbox the profile's settings.json, CLAUDE.md, hooks, plugins, commands, agents,
         skills and loose scripts are read-only, so nothing it does can plant code that runs on this
         machine the next time you launch the profile directly. Log in with /login the first time:
         a macOS Keychain login cannot be read from inside the sandbox.
 
-        Which profiles are sandboxed is kept in ~/.tabard/sandboxed, outside every profile, so a
-        sandbox cannot turn itself off.
+        Which profiles are sandboxed is kept in ~/.tabard/sandboxed, and their images in
+        ~/.tabard/images, outside every profile, so a sandbox cannot change either.
         """;
 
     /// <summary>

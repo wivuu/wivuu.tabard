@@ -133,8 +133,9 @@ internal static class Completions
             "rm" or "remove" => before.Count == 1 ? Profiles() : [],
             "sandbox" or "sbx" => before.Count switch
             {
-                1 => ["on", "off", "help", .. Profiles()],
-                2 when before[1] is "on" or "off" => Profiles(),
+                1 => ["on", "off", "image", "help", .. Profiles()],
+                2 when before[1] is "on" or "off" or "image" => Profiles(),
+                3 when before[1] is "image" => ["--default"],
                 _ => [],
             },
             // Not Profiles(): the name being typed here is one that does not exist yet.

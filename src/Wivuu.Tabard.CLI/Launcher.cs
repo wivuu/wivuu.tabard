@@ -47,22 +47,35 @@ internal static class Launcher
                     + $"'tabard sandbox off {profile.Name}' to launch it directly."
             );
 
-        var workspace = Directory.GetCurrentDirectory();
-        Sandboxing.CheckWorkspace(workspace);
+        var cwd = Directory.GetCurrentDirectory();
+        var warnings = new List<string>();
+        var workspace = Sandboxing.ResolveWorkspace(cwd, warnings);
         Sandboxing.Prepare(profile.Dir);
 
-        var sandbox = Sandboxing.SandboxName(profile.Name, workspace);
+        var image = Sandboxing.ImageOf(profile.Name);
+        var sandbox = Sandboxing.SandboxName(profile.Name, workspace.Root, image);
         var exists = Sandboxing.Exists(executable, sandbox);
 
+        foreach (var warning in warnings)
+            Console.Error.WriteLine($"tabard: {warning}");
+
         Console.Error.WriteLine(
-            exists
-                ? $"tabard: launching '{profile.Name}' in sandbox {sandbox}."
-                : $"tabard: creating sandbox {sandbox} for '{profile.Name}'."
+            exists ? $"tabard: launching '{profile.Name}' in sandbox {sandbox}."
+            : image is null ? $"tabard: creating sandbox {sandbox} for '{profile.Name}'."
+            : $"tabard: creating sandbox {sandbox} for '{profile.Name}' from {image}."
         );
 
         var psi = BuildStartInfo(
             executable,
-            Sandboxing.RunArgs(sandbox, profile.Dir, workspace, exists, claudeArgs)
+            Sandboxing.RunArgs(
+                sandbox,
+                profile.Dir,
+                workspace,
+                exists,
+                claudeArgs,
+                image,
+                Sandboxing.GitIdentity(cwd)
+            )
         );
 
         var code = Run(psi);

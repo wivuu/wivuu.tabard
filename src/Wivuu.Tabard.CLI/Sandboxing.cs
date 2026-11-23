@@ -132,6 +132,27 @@ internal static class Sandboxing
         TryWrite(names);
     }
 
+    /// <summary>Called by <see cref="ProfileStore.Rename"/> and <see cref="ProfileStore.Delete"/>
+    /// whether or not the profile is sandboxed: an image can be set while sandboxing is off.</summary>
+    public static void MoveImage(string from, string? to)
+    {
+        try
+        {
+            var images = Images();
+            if (!images.Remove(from, out var image))
+                return;
+
+            if (to is not null)
+                images[to] = image;
+
+            WriteImages(images);
+        }
+        catch
+        {
+            // Housekeeping riding along with a rename or delete that has already changed the disk.
+        }
+    }
+
     /// <summary>A profile created later under the same name must start out the way every new
     /// profile does, not inherit this one's setting.</summary>
     public static void ForgetProfile(string profile)
@@ -170,11 +191,15 @@ internal static class Sandboxing
     /// name. The readable part is for 'sbx ls'; the hash is what keeps two folders that slug the
     /// same, or two profiles that do, from colliding.
     /// </summary>
-    public static string SandboxName(string profile, string workspace)
+    public static string SandboxName(string profile, string workspace, string? image = null)
     {
-        var hash = Convert.ToHexStringLower(
-            SHA256.HashData(Encoding.UTF8.GetBytes($"{profile}\0{workspace}"))
-        )[..8];
+        // The image is part of the key only when there is one, so the sandboxes made before images
+        // could be chosen keep their names. With it, choosing another image makes a new sandbox
+        // rather than going back into one sbx made from the old image.
+        var key = image is { Length: > 0 }
+            ? $"{profile}\0{workspace}\0{image}"
+            : $"{profile}\0{workspace}";
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..8];
 
         var parts = new List<string> { "tabard" };
 
@@ -274,6 +299,26 @@ internal static class Sandboxing
     /// </summary>
     public static void CheckWorkspace(string workspace)
     {
+        if (Unmountable(workspace) is { } problem)
+            throw new InvalidOperationException(problem);
+    }
+
+    /// <summary>Why <paramref name="path"/> cannot be mounted into a sandbox, or null.</summary>
+    private static string? Unmountable(string path)
+    {
+        try
+        {
+            CheckMount(path);
+            return null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex.Message;
+        }
+    }
+
+    private static void CheckMount(string workspace)
+    {
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Paths.TabardRoot));
         var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workspace));
 
@@ -301,30 +346,43 @@ internal static class Sandboxing
         );
 
     /// <summary>
-    /// The arguments for 'sbx'. Creating takes the mounts, which sbx fixes at creation; going back
-    /// into one that exists takes only the name, because sbx keeps the rest. The environment is
-    /// passed both times - sbx applies it to the session, not just to the sandbox it creates.
-    /// Permission prompts stay on unless <paramref name="claudeArgs"/> asks for bypass mode; see
-    /// <see cref="KeepPrompts"/>.
+    /// The arguments for 'sbx'. Creating takes the image and the mounts, which sbx fixes at
+    /// creation; going back into one that exists takes only the name, because sbx keeps the rest.
+    /// The environment and the working directory are passed both times - sbx applies them to the
+    /// session, not just to the sandbox it creates. Permission prompts stay on unless
+    /// <paramref name="claudeArgs"/> asks for bypass mode; see <see cref="KeepPrompts"/>.
     /// </summary>
     public static List<string> RunArgs(
         string sandbox,
         string profileDir,
-        string workspace,
+        Workspace workspace,
         bool exists,
-        IReadOnlyList<string> claudeArgs
+        IReadOnlyList<string> claudeArgs,
+        string? image = null,
+        IReadOnlyList<string>? environment = null
     )
     {
         var configDir = Path.GetFullPath(profileDir);
 
         List<string> args = exists ? ["run", "--name", sandbox] : ["run", Agent, "--name", sandbox];
 
+        if (!exists && image is { Length: > 0 })
+            args.AddRange(["-t", image]);
+
+        if (!string.Equals(workspace.WorkDir, workspace.Root, StringComparison.Ordinal))
+            args.AddRange(["-w", workspace.WorkDir]);
+
         args.AddRange(["-e", $"CLAUDE_CONFIG_DIR={configDir}"]);
+
+        foreach (var variable in environment ?? [])
+            args.AddRange(["-e", variable]);
 
         if (!exists)
         {
-            args.Add(workspace);
+            args.Add(workspace.Root);
+            args.AddRange(workspace.Writable);
             args.Add(configDir);
+            args.AddRange(workspace.ReadOnly.Select(path => $"{path}:ro"));
             args.AddRange(ReadOnlyPaths(configDir).Select(path => $"{path}:ro"));
         }
 
@@ -336,6 +394,258 @@ internal static class Sandboxing
         args.AddRange(claudeArgs);
 
         return args;
+    }
+
+    /// <summary>
+    /// What a launch from <paramref name="cwd"/> mounts. Inside a git repository that is the whole
+    /// repository - launched from a subfolder, the sandbox would otherwise have no .git to find -
+    /// plus, for a worktree or a submodule, the git directory its .git file points at elsewhere.
+    /// The session still starts in <paramref name="cwd"/>.
+    ///
+    /// The repository's hooks and config are mounted read-only: git runs hooks, and config can name
+    /// programs (core.hooksPath, core.fsmonitor, aliases), so either would let the sandbox plant
+    /// something that runs here the next time you use git on this machine.
+    ///
+    /// A repository that cannot be mounted - one rooted at your home directory, say - falls back to
+    /// the folder alone, with a warning. Throws only when that folder cannot be mounted either.
+    /// </summary>
+    public static Workspace ResolveWorkspace(string cwd, List<string> warnings)
+    {
+        var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(cwd));
+        CheckWorkspace(folder);
+
+        if (FindRepository(folder) is not { } repo)
+            return new Workspace(folder, folder, [], []);
+
+        var writable = repo
+            .GitDirs.Where(dir => !Contains(repo.Root, dir))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (
+            new[] { repo.Root }
+                .Concat(writable)
+                .Select(Unmountable)
+                .FirstOrDefault(p => p is not null) is
+            { } problem
+        )
+        {
+            warnings.Add(
+                $"mounting only {Paths.Pretty(folder)}, not its git repository - {problem.Replace("cannot sandbox ", "")} "
+                    + "git will not work inside the sandbox."
+            );
+            return new Workspace(folder, folder, [], []);
+        }
+
+        var readOnly = new List<string>();
+        foreach (var dir in repo.GitDirs)
+        {
+            foreach (var entry in new[] { "hooks", "config" })
+            {
+                var path = Path.Combine(dir, entry);
+                if ((File.Exists(path) || Directory.Exists(path)) && !readOnly.Contains(path))
+                    readOnly.Add(path);
+            }
+        }
+
+        return new Workspace(repo.Root, folder, writable, readOnly);
+    }
+
+    private sealed record Repository(string Root, IReadOnlyList<string> GitDirs);
+
+    /// <summary>
+    /// The nearest enclosing work tree, found the way git finds it: the first folder up from
+    /// <paramref name="folder"/> holding a .git. A .git directory is the git directory; a .git file
+    /// is a worktree or a submodule pointing at one elsewhere, and a worktree's git directory names
+    /// the shared one it belongs to in 'commondir'. Fails soft to null.
+    /// </summary>
+    private static Repository? FindRepository(string folder)
+    {
+        try
+        {
+            for (var dir = new DirectoryInfo(folder); dir is not null; dir = dir.Parent)
+            {
+                var dotGit = Path.Combine(dir.FullName, ".git");
+
+                if (Directory.Exists(dotGit))
+                    return new Repository(Trim(dir.FullName), [Trim(dotGit)]);
+
+                if (!File.Exists(dotGit))
+                    continue;
+
+                var line = File.ReadLines(dotGit).FirstOrDefault()?.Trim() ?? "";
+                if (!line.StartsWith("gitdir:", StringComparison.Ordinal))
+                    return null;
+
+                var gitDir = Trim(Path.GetFullPath(line["gitdir:".Length..].Trim(), dir.FullName));
+                var dirs = new List<string> { gitDir };
+
+                var commonFile = Path.Combine(gitDir, "commondir");
+                if (File.Exists(commonFile))
+                {
+                    var common = File.ReadAllText(commonFile).Trim();
+                    if (common.Length > 0)
+                        dirs.Insert(0, Trim(Path.GetFullPath(common, gitDir)));
+                }
+
+                // A worktree's own git directory sits inside the shared one, which covers it.
+                var mounts = dirs.Where(d => !dirs.Any(o => o != d && Contains(o, d))).ToList();
+                return new Repository(Trim(dir.FullName), mounts);
+            }
+        }
+        catch
+        {
+            // An unreadable .git means mounting the folder alone, as before repositories counted.
+        }
+
+        return null;
+
+        static string Trim(string path) => Path.TrimEndingDirectorySeparator(path);
+    }
+
+    /// <summary>
+    /// Your git identity, for commits made inside the sandbox: its home is not yours, so it has
+    /// no ~/.gitconfig of yours to read. Asked of git in <paramref name="cwd"/>, so an includeIf
+    /// that gives this folder a work address still applies; GIT_AUTHOR_* and GIT_COMMITTER_* set
+    /// here win, as they would for git itself. Empty when git has nothing to say.
+    /// </summary>
+    public static List<string> GitIdentity(string cwd)
+    {
+        var name = GitConfig(cwd, "user.name");
+        var email = GitConfig(cwd, "user.email");
+        var variables = new List<string>();
+
+        void Add(string variable, string? configured)
+        {
+            var value = Environment.GetEnvironmentVariable(variable) is { Length: > 0 } set
+                ? set
+                : configured;
+
+            if (value is { Length: > 0 } && value.AsSpan().IndexOfAny('\r', '\n') < 0)
+                variables.Add($"{variable}={value}");
+        }
+
+        Add("GIT_AUTHOR_NAME", name);
+        Add("GIT_AUTHOR_EMAIL", email);
+        Add("GIT_COMMITTER_NAME", name);
+        Add("GIT_COMMITTER_EMAIL", email);
+
+        return variables;
+    }
+
+    private static string? GitConfig(string cwd, string key)
+    {
+        try
+        {
+            if (Launcher.Which("git") is not { } git)
+                return null;
+
+            var psi = new ProcessStartInfo(git)
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = cwd,
+            };
+
+            psi.ArgumentList.Add("config");
+            psi.ArgumentList.Add("--get");
+            psi.ArgumentList.Add(key);
+
+            using var proc = Process.Start(psi);
+            if (proc is null)
+                return null;
+
+            var stderr = proc.StandardError.ReadToEndAsync();
+            var value = proc.StandardOutput.ReadToEnd().Trim();
+
+            if (!proc.WaitForExit(TimeSpan.FromSeconds(10)))
+            {
+                proc.Kill(entireProcessTree: true);
+                return null;
+            }
+
+            _ = stderr.Result;
+            return proc.ExitCode == 0 && value.Length > 0 ? value : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The image a profile's sandboxes are made from, or null for sbx's default. Kept like the
+    /// on/off list - '&lt;image&gt; &lt;name&gt;' per line, an image never holding a space - and failing
+    /// soft to the default the same way.
+    /// </summary>
+    public static Dictionary<string, string> Images()
+    {
+        var images = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        try
+        {
+            if (!File.Exists(Paths.ImagesFile))
+                return images;
+
+            foreach (var line in File.ReadLines(Paths.ImagesFile))
+            {
+                var space = line.IndexOf(' ');
+                if (space <= 0)
+                    continue;
+
+                var name = line[(space + 1)..].Trim();
+                if (name.Length > 0)
+                    images[name] = line[..space];
+            }
+        }
+        catch
+        {
+            images.Clear();
+        }
+
+        return images;
+    }
+
+    public static string? ImageOf(string profile) =>
+        Images().TryGetValue(profile, out var image) ? image : null;
+
+    /// <summary>Null goes back to sbx's default. Callers hold
+    /// <see cref="ProfileStore.AcquireLock"/>, as for <see cref="Set"/>.</summary>
+    public static void SetImage(string profile, string? image)
+    {
+        if (image is not null && (image.Length == 0 || image.Any(char.IsWhiteSpace)))
+            throw new ArgumentException($"'{image}' is not an image reference.");
+
+        if (image is not null && profile.AsSpan().IndexOfAny('\r', '\n') >= 0)
+            throw new InvalidOperationException(
+                "cannot set an image for a profile whose name holds a line break - rename it first."
+            );
+
+        var images = Images();
+        var changed = image is null
+            ? images.Remove(profile)
+            : !images.TryGetValue(profile, out var was) || was != image;
+
+        if (image is not null)
+            images[profile] = image;
+
+        if (changed)
+            WriteImages(images);
+    }
+
+    private static void WriteImages(Dictionary<string, string> images)
+    {
+        Directory.CreateDirectory(Paths.TabardRoot);
+
+        var temp = $"{Paths.ImagesFile}.{Environment.ProcessId}.tmp";
+        File.WriteAllLines(
+            temp,
+            images
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{pair.Value} {pair.Key}")
+        );
+        File.Move(temp, Paths.ImagesFile, overwrite: true);
     }
 
     /// <summary>
@@ -579,3 +889,13 @@ internal static class Sandboxing
         }
     }
 }
+
+/// <summary>What a sandbox mounts: <see cref="Root"/> read-write, as are <see cref="Writable"/>
+/// (git directories outside it), <see cref="ReadOnly"/> read-only, and the session starts in
+/// <see cref="WorkDir"/>.</summary>
+internal sealed record Workspace(
+    string Root,
+    string WorkDir,
+    IReadOnlyList<string> Writable,
+    IReadOnlyList<string> ReadOnly
+);

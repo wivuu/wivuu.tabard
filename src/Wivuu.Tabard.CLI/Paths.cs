@@ -33,6 +33,11 @@ internal static class Paths
     /// itself off. See <see cref="Sandboxing"/>.</summary>
     public static string SandboxedFile { get; } = Path.Combine(TabardRoot, "sandboxed");
 
+    /// <summary>The image each sandboxed profile's sandboxes are made from, for profiles that do not
+    /// use sbx's default. Outside every profile for the same reason as <see cref="SandboxedFile"/>.
+    /// </summary>
+    public static string ImagesFile { get; } = Path.Combine(TabardRoot, "images");
+
     /// <summary>Where 'tabard completion install' leaves the script it points a shell at.</summary>
     public static string CompletionsRoot { get; } = Path.Combine(TabardRoot, "completions");
 

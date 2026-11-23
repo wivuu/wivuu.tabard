@@ -104,7 +104,7 @@ public class CompletionsTests
         await Assert.That(Complete("tabard", "sa")).IsEquivalentTo(new[] { "sandbox" });
         await Assert
             .That(Complete("tabard", "sandbox", ""))
-            .IsEquivalentTo(new[] { "on", "off", "help", "work" });
+            .IsEquivalentTo(new[] { "on", "off", "image", "help", "work" });
         await Assert.That(Complete("tabard", "sandbox", "on", "")).IsEquivalentTo(new[] { "work" });
         await Assert.That(Complete("tabard", "sandbox", "off", "work", "")).IsEmpty();
     }

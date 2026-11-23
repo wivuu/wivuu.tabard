@@ -11,6 +11,8 @@ public class SandboxingTests
     [Before(HookType.Test)]
     public void StartFromABareHome() => Sandbox.Reset();
 
+    private static Workspace Folder(string path) => new(path, path, [], []);
+
     [Test]
     public async Task Nothing_is_sandboxed_without_a_file()
     {
@@ -167,7 +169,7 @@ public class SandboxingTests
         var args = Sandboxing.RunArgs(
             "tabard-x",
             dir,
-            "/projects/app",
+            Folder("/projects/app"),
             exists: false,
             ["--continue"]
         );
@@ -201,7 +203,7 @@ public class SandboxingTests
     {
         var dir = Sandbox.Scratch();
 
-        var args = Sandboxing.RunArgs("tabard-x", dir, "/projects/app", exists: true, []);
+        var args = Sandboxing.RunArgs("tabard-x", dir, Folder("/projects/app"), exists: true, []);
 
         await Assert
             .That(args)
@@ -232,7 +234,13 @@ public class SandboxingTests
         var claudeArgs = line.Split(' ');
         var dir = Sandbox.Scratch();
 
-        var args = Sandboxing.RunArgs("tabard-x", dir, "/projects/app", exists: true, claudeArgs);
+        var args = Sandboxing.RunArgs(
+            "tabard-x",
+            dir,
+            Folder("/projects/app"),
+            exists: true,
+            claudeArgs
+        );
 
         await Assert.That(args).DoesNotContain(Sandboxing.KeepPrompts);
         await Assert.That(args.TakeLast(claudeArgs.Length)).IsEquivalentTo(claudeArgs);
@@ -246,12 +254,185 @@ public class SandboxingTests
         var args = Sandboxing.RunArgs(
             "tabard-x",
             dir,
-            "/projects/app",
+            Folder("/projects/app"),
             exists: true,
             ["--permission-mode", "acceptEdits"]
         );
 
         await Assert.That(args).Contains(Sandboxing.KeepPrompts);
+    }
+
+    [Test]
+    public async Task ResolveWorkspace_is_the_folder_outside_a_repository()
+    {
+        var dir = Sandbox.Scratch();
+        var warnings = new List<string>();
+
+        var workspace = Sandboxing.ResolveWorkspace(dir, warnings);
+
+        await Assert.That(workspace).IsEqualTo(new Workspace(dir, dir, [], []));
+        await Assert.That(warnings).IsEmpty();
+    }
+
+    /// <summary>From a subfolder the sandbox still needs the .git above it, and git's hooks and
+    /// config must not be writable from inside.</summary>
+    [Test]
+    public async Task ResolveWorkspace_mounts_the_repository_from_a_subfolder()
+    {
+        var repo = Sandbox.Scratch();
+        var git = Path.Combine(repo, ".git");
+        Directory.CreateDirectory(Path.Combine(git, "hooks"));
+        File.WriteAllText(Path.Combine(git, "config"), "");
+        var sub = Directory.CreateDirectory(Path.Combine(repo, "src", "app")).FullName;
+
+        var workspace = Sandboxing.ResolveWorkspace(sub, []);
+
+        await Assert.That(workspace.Root).IsEqualTo(repo);
+        await Assert.That(workspace.WorkDir).IsEqualTo(sub);
+        await Assert.That(workspace.Writable).IsEmpty();
+        await Assert
+            .That(workspace.ReadOnly)
+            .IsEquivalentTo([Path.Combine(git, "hooks"), Path.Combine(git, "config")]);
+    }
+
+    /// <summary>A worktree's .git is a file pointing into the main checkout, and git needs the
+    /// shared directory that 'commondir' names.</summary>
+    [Test]
+    public async Task ResolveWorkspace_mounts_a_worktrees_shared_git_directory()
+    {
+        var main = Sandbox.Scratch("main");
+        var common = Path.Combine(main, ".git");
+        var own = Directory.CreateDirectory(Path.Combine(common, "worktrees", "feature")).FullName;
+        Directory.CreateDirectory(Path.Combine(common, "hooks"));
+        File.WriteAllText(Path.Combine(own, "commondir"), "../..\n");
+
+        var tree = Sandbox.Scratch("tree");
+        File.WriteAllText(Path.Combine(tree, ".git"), $"gitdir: {own}\n");
+
+        var workspace = Sandboxing.ResolveWorkspace(tree, []);
+
+        await Assert.That(workspace.Root).IsEqualTo(tree);
+        await Assert.That(workspace.Writable).IsEquivalentTo([common]);
+        await Assert.That(workspace.ReadOnly).Contains(Path.Combine(common, "hooks"));
+    }
+
+    [Test]
+    public async Task RunArgs_starts_in_the_folder_and_mounts_the_repository()
+    {
+        var dir = Sandbox.Scratch();
+        var workspace = new Workspace(
+            "/projects/app",
+            "/projects/app/src",
+            ["/projects/main/.git"],
+            ["/projects/app/.git/hooks"]
+        );
+
+        var args = Sandboxing.RunArgs(
+            "tabard-x",
+            dir,
+            workspace,
+            exists: false,
+            [],
+            image: "my/image:1",
+            environment: ["GIT_AUTHOR_NAME=Me"]
+        );
+
+        await Assert
+            .That(args.Take(10))
+            .IsEquivalentTo(
+                new[]
+                {
+                    "run",
+                    "claude",
+                    "--name",
+                    "tabard-x",
+                    "-t",
+                    "my/image:1",
+                    "-w",
+                    "/projects/app/src",
+                    "-e",
+                    $"CLAUDE_CONFIG_DIR={dir}",
+                }
+            );
+        await Assert.That(args).Contains("GIT_AUTHOR_NAME=Me");
+        await Assert.That(args).Contains("/projects/app");
+        await Assert.That(args).Contains("/projects/main/.git");
+        await Assert.That(args).Contains("/projects/app/.git/hooks:ro");
+    }
+
+    /// <summary>sbx fixes the image at creation, so going back in must not pass one.</summary>
+    [Test]
+    public async Task RunArgs_reattaching_leaves_the_image_out()
+    {
+        var args = Sandboxing.RunArgs(
+            "tabard-x",
+            Sandbox.Scratch(),
+            Folder("/projects/app"),
+            exists: true,
+            [],
+            image: "my/image:1"
+        );
+
+        await Assert.That(args).DoesNotContain("-t");
+    }
+
+    /// <summary>Choosing an image has to make a new sandbox, but sandboxes made before images
+    /// existed keep their names.</summary>
+    [Test]
+    public async Task SandboxName_changes_with_the_image_only_when_there_is_one()
+    {
+        var plain = Sandboxing.SandboxName("work", "/projects/app");
+
+        await Assert.That(Sandboxing.SandboxName("work", "/projects/app", null)).IsEqualTo(plain);
+        await Assert
+            .That(Sandboxing.SandboxName("work", "/projects/app", "my/image:1"))
+            .IsNotEqualTo(plain);
+    }
+
+    [Test]
+    public async Task Images_round_trip_and_follow_renames_and_deletes()
+    {
+        var work = ProfileStore.Create("work");
+
+        Sandboxing.SetImage("work", "my/image:1");
+        await Assert.That(Sandboxing.ImageOf("work")).IsEqualTo("my/image:1");
+
+        var renamed = ProfileStore.Rename(work, "job").Profile;
+        await Assert.That(Sandboxing.ImageOf("job")).IsEqualTo("my/image:1");
+        await Assert.That(Sandboxing.ImageOf("work")).IsNull();
+
+        ProfileStore.Delete(renamed);
+        await Assert.That(Sandboxing.Images()).IsEmpty();
+
+        Sandboxing.SetImage("other", "x");
+        Sandboxing.SetImage("other", null);
+        await Assert.That(Sandboxing.ImageOf("other")).IsNull();
+    }
+
+    [Test]
+    public async Task SetImage_refuses_references_with_spaces()
+    {
+        await Assert
+            .That(() => Sandboxing.SetImage("work", "my image"))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task GitIdentity_prefers_the_environment()
+    {
+        var before = Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL");
+        Environment.SetEnvironmentVariable("GIT_AUTHOR_EMAIL", "set@example.com");
+
+        try
+        {
+            await Assert
+                .That(Sandboxing.GitIdentity(Sandbox.Scratch()))
+                .Contains("GIT_AUTHOR_EMAIL=set@example.com");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GIT_AUTHOR_EMAIL", before);
+        }
     }
 
     /// <summary>A folder holding ~/.tabard would hand the sandbox the list that decides whether it
