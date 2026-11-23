@@ -367,9 +367,14 @@ seconds. It ignores ^C, which is meant for the agent.
 
 **Wait for port** holds the agent back until something accepts connections there — `8080` for
 localhost, or `host:8080` — so a server that takes a while to load a model is ready before the agent
-asks it anything. tabard says it is waiting, and ^C gives up without launching. If the command
+asks it anything. While it waits, the terminal shows a spinner, the time so far and the command's
+latest line of output, and ^C gives up without launching. If the command
 alongside exits before the port answers, tabard doesn't launch the agent and shows the end of the
 log instead. The port can be set without a command, to wait on a server started some other way.
+
+If the port already answers when the agent launches — the server was started by hand, or by
+another session of the profile — tabard doesn't start the command at all and launches straight
+away against what is there. Since it didn't start that server, it doesn't stop it either.
 
 It only runs for launches through tabard: a bare `claude` or `pi` after `tabard switch` starts
 nothing. The commands are kept in `~/.tabard/companions.json`, outside every profile, so a sandboxed

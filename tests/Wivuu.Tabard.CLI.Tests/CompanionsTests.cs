@@ -228,6 +228,40 @@ public class CompanionsTests
         await Assert.That(running!.Tail(15)).IsEquivalentTo(["missing --profile"]);
     }
 
+    /// <summary>A server already up - started by hand, or by another session - is used as it is:
+    /// a second copy is not started, so there is nothing to stop at exit either.</summary>
+    [Test]
+    public async Task A_server_already_answering_is_not_started_again()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+            var marker = Path.Combine(Sandbox.Scratch(), "started");
+            var profile = ProfileStore.Create("local");
+            using (ProfileStore.AcquireLock())
+            {
+                Companions.Set("local", $"touch '{marker}'");
+                Companions.SetWaitFor("local", $"127.0.0.1:{port}");
+            }
+
+            await Assert.That(Companions.Start(profile)).IsNull();
+            Thread.Sleep(300);
+            await Assert.That(File.Exists(marker)).IsFalse();
+
+            // And the launch goes ahead against it.
+            await Assert.That(Companions.WaitFor(profile, running: null)).IsNull();
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
     private static int FreePort()
     {
         var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);

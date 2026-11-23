@@ -232,6 +232,23 @@ internal static class Companions
         }
     }
 
+    /// <summary>The profile's address to wait for, if it has one and something answers there.
+    /// </summary>
+    private static string? AlreadyAnswering(Profile profile)
+    {
+        if (WaitForOf(profile.Name) is not { } address)
+            return null;
+
+        try
+        {
+            return Answers(ParseAddress(address), CancellationToken.None) ? address : null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>One connection attempt, a second at most - a host that drops packets rather than
     /// refusing would otherwise hold each try for the OS's whole connect timeout.</summary>
     private static bool Answers((string Host, int Port) target, CancellationToken cancel)
@@ -298,6 +315,17 @@ internal static class Companions
     {
         if (Of(profile.Name) is not { } command)
             return null;
+
+        // Already up - started by hand, or by another session of this profile. A second copy
+        // would at best fail to bind, and at worst load a model twice before finding that out.
+        // Not started means not stopped at exit either: that server is not tabard's.
+        if (AlreadyAnswering(profile) is { } address)
+        {
+            Console.Error.WriteLine(
+                $"tabard: {address} is already answering, so '{command}' was not started."
+            );
+            return null;
+        }
 
         var log = LogFile(profile.Name);
 
