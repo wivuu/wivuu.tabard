@@ -366,19 +366,17 @@ public class SrtTests
 
             using (new FakeSrt())
             {
-                // On comes back to the kind last used, sbx, and sbx is the last kind, so off
-                // follows. Without a choice, on starts from the first installed kind, srt.
-                Step();
-                await Assert.That(State()).IsEqualTo("sbx");
-                Step();
-                await Assert.That(State()).IsEqualTo("off");
-                SandboxOptions.SetKind("work", null);
+                // sbx was the last kind used, and still the cycle starts from srt - otherwise a
+                // profile left on sbx could never get back to it.
+                await Assert.That(SandboxOptions.KindOf("work")).IsEqualTo("sbx");
                 Step();
                 await Assert.That(State()).IsEqualTo("srt");
                 Step();
                 await Assert.That(State()).IsEqualTo("sbx");
                 Step();
                 await Assert.That(State()).IsEqualTo("off");
+                Step();
+                await Assert.That(State()).IsEqualTo("srt");
             }
         }
     }
@@ -451,5 +449,98 @@ public class SrtTests
         await Assert
             .That(() => global::Cli.Run(["sandbox", "kind", "work", "firecracker"]))
             .Throws<ArgumentException>();
+    }
+
+    /// <summary>The Network screen's list: the agent's own sites first and fixed, then the
+    /// profile's additions, then the developer defaults, each once.</summary>
+    [Test]
+    public async Task The_network_lists_each_site_once_with_where_it_comes_from()
+    {
+        var profile = ProfileStore.Create("work");
+        using (ProfileStore.AcquireLock())
+        {
+            SandboxOptions.SetAllowed("work", "example.com github.com");
+            SandboxOptions.SetBlocked("work", "pypi.org", true);
+            Companions.SetWaitFor("work", "8080");
+        }
+
+        var entries = SrtSandbox.Network(profile, Sandboxes.HostPorts(profile));
+
+        await Assert
+            .That(entries.Select(e => e.Site))
+            .IsEquivalentTo(entries.Select(e => e.Site).Distinct());
+        await Assert.That(entries[0].Source).IsEqualTo(SrtSandbox.Source.Agent);
+        await Assert
+            .That(entries.Single(e => e.Site == "localhost:8080").Source)
+            .IsEqualTo(SrtSandbox.Source.Agent);
+        await Assert
+            .That(entries.Single(e => e.Site == "example.com").Source)
+            .IsEqualTo(SrtSandbox.Source.Added);
+
+        // Added and a default both: listed once, as added, so removing it leaves the default.
+        await Assert
+            .That(entries.Single(e => e.Site == "github.com").Source)
+            .IsEqualTo(SrtSandbox.Source.Added);
+
+        var pypi = entries.Single(e => e.Site == "pypi.org");
+        await Assert.That(pypi.Source).IsEqualTo(SrtSandbox.Source.Developer);
+        await Assert.That(pypi.Allowed).IsFalse();
+
+        await Assert.That(ProfileEditor.NetworkSummary(profile)).Contains("2 added, 1 blocked");
+    }
+
+    [Test]
+    public async Task A_blocked_default_is_left_out_of_the_launch()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var claude = new FakeClaude();
+        using var srt = new FakeSrt();
+        ProfileStore.Create("work");
+        Sandboxing.Set("work", true);
+        using (ProfileStore.AcquireLock())
+            SandboxOptions.SetBlocked("work", "registry.npmjs.org", true);
+
+        await Assert.That(global::Cli.Run(["use", "work"])).IsEqualTo(0);
+
+        var sites = srt.List("network", "allowedDomains");
+        await Assert.That(sites).DoesNotContain("registry.npmjs.org");
+        await Assert.That(sites).Contains("pypi.org");
+    }
+
+    [Test]
+    public async Task Blocked_defaults_are_kept_put_back_and_follow_a_rename()
+    {
+        var work = ProfileStore.Create("work");
+        SandboxOptions.SetBlocked("work", "pypi.org", true);
+        SandboxOptions.SetBlocked("work", "crates.io", true);
+        SandboxOptions.SetBlocked("work", "pypi.org", true);
+        await Assert
+            .That(SandboxOptions.BlockedOf("work"))
+            .IsEquivalentTo(["pypi.org", "crates.io"]);
+
+        SandboxOptions.SetBlocked("work", "PYPI.org", false);
+        await Assert.That(SandboxOptions.BlockedOf("work")).IsEquivalentTo(["crates.io"]);
+
+        var job = ProfileStore.Rename(work, "job").Profile;
+        await Assert.That(SandboxOptions.BlockedOf("job")).IsEquivalentTo(["crates.io"]);
+
+        SandboxOptions.ClearBlocked("job");
+        await Assert.That(SandboxOptions.BlockedOf("job")).IsEmpty();
+        await Assert.That(File.ReadAllText(Paths.SandboxOptionsFile).Trim()).IsEqualTo("{}");
+    }
+
+    [Test]
+    public async Task The_network_screens_help_fits_the_window()
+    {
+        await Assert.That(NetworkEditor.Help.Length).IsLessThanOrEqualTo(80);
+        await Assert
+            .That(
+                ProfileEditor
+                    .Hint(ProfileEditor.Field.Allow, new Profile { Name = "w", Dir = "/w" })
+                    .Length + 2
+            )
+            .IsLessThanOrEqualTo(80);
     }
 }

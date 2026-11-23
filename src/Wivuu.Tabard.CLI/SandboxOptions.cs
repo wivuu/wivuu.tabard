@@ -14,14 +14,21 @@ namespace Wivuu.Tabard.Cli;
 /// </summary>
 internal static partial class SandboxOptions
 {
-    private sealed record Entry(string? Kind, IReadOnlyList<string> Allow)
+    private sealed record Entry(
+        string? Kind,
+        IReadOnlyList<string> Allow,
+        IReadOnlyList<string> Block
+    )
     {
-        public bool IsEmpty => Kind is null && Allow.Count == 0;
+        public bool IsEmpty => Kind is null && Allow.Count == 0 && Block.Count == 0;
 
-        public bool Same(Entry other) => Kind == other.Kind && Allow.SequenceEqual(other.Allow);
+        public bool Same(Entry other) =>
+            Kind == other.Kind
+            && Allow.SequenceEqual(other.Allow)
+            && Block.SequenceEqual(other.Block);
     }
 
-    private static readonly Entry Empty = new(null, []);
+    private static readonly Entry Empty = new(null, [], []);
 
     /// <summary>The kind the profile chose, or null to use whichever is installed
     /// (<see cref="Sandboxes.Default"/>).</summary>
@@ -61,6 +68,35 @@ internal static partial class SandboxOptions
     /// </summary>
     public static void SetAllowed(string profile, string? text) =>
         Update(profile, entry => entry with { Allow = ParseSites(text) });
+
+    /// <summary>The default sites (<see cref="SrtSandbox.DeveloperSites"/>) the profile has taken
+    /// off its sandboxes' list.</summary>
+    public static IReadOnlyList<string> BlockedOf(string profile) =>
+        Read().GetValueOrDefault(profile)?.Block ?? [];
+
+    /// <summary>Takes a default site off the profile's list, or puts it back. Callers hold
+    /// <see cref="ProfileStore.AcquireLock"/>.</summary>
+    public static void SetBlocked(string profile, string site, bool blocked) =>
+        Update(
+            profile,
+            entry =>
+                entry with
+                {
+                    Block = blocked
+                        ? [.. entry.Block.Append(site).Distinct(StringComparer.OrdinalIgnoreCase)]
+                        :
+                        [
+                            .. entry.Block.Where(s =>
+                                !string.Equals(s, site, StringComparison.OrdinalIgnoreCase)
+                            ),
+                        ],
+                }
+        );
+
+    /// <summary>Every default site back on the list. Callers hold
+    /// <see cref="ProfileStore.AcquireLock"/>.</summary>
+    public static void ClearBlocked(string profile) =>
+        Update(profile, entry => entry with { Block = [] });
 
     internal static List<string> ParseSites(string? text)
     {
@@ -172,28 +208,11 @@ internal static partial class SandboxOptions
                     kind = sandbox.Name;
                 }
 
-                var allow = new List<string>();
-                if (
-                    profile.Value.TryGetProperty("allow", out var a)
-                    && a.ValueKind is JsonValueKind.Array
-                )
-                {
-                    foreach (var site in a.EnumerateArray())
-                    {
-                        // Each one is checked again, so a hand-edited file cannot slip srt
-                        // something that is not a site.
-                        if (
-                            site.ValueKind is JsonValueKind.String
-                            && site.GetString() is { } text
-                            && SitePattern().IsMatch(text)
-                        )
-                        {
-                            allow.Add(text);
-                        }
-                    }
-                }
-
-                var entry = new Entry(kind, allow);
+                var entry = new Entry(
+                    kind,
+                    Sites(profile.Value, "allow"),
+                    Sites(profile.Value, "block")
+                );
                 if (!entry.IsEmpty)
                     entries[profile.Name] = entry;
             }
@@ -204,6 +223,31 @@ internal static partial class SandboxOptions
         }
 
         return entries;
+    }
+
+    private static List<string> Sites(JsonElement profile, string name)
+    {
+        var sites = new List<string>();
+        if (
+            !profile.TryGetProperty(name, out var list) || list.ValueKind is not JsonValueKind.Array
+        )
+            return sites;
+
+        foreach (var site in list.EnumerateArray())
+        {
+            // Each one is checked again, so a hand-edited file cannot slip srt something that is
+            // not a site.
+            if (
+                site.ValueKind is JsonValueKind.String
+                && site.GetString() is { } text
+                && SitePattern().IsMatch(text)
+            )
+            {
+                sites.Add(text);
+            }
+        }
+
+        return sites;
     }
 
     private static void Write(Dictionary<string, Entry> entries)
@@ -232,10 +276,19 @@ internal static partial class SandboxOptions
                     if (entry.Kind is { } kind)
                         writer.WriteString("kind", kind);
 
-                    if (entry.Allow.Count > 0)
+                    foreach (
+                        var (name, sites) in new[]
+                        {
+                            ("allow", entry.Allow),
+                            ("block", entry.Block),
+                        }
+                    )
                     {
-                        writer.WriteStartArray("allow");
-                        foreach (var site in entry.Allow)
+                        if (sites.Count == 0)
+                            continue;
+
+                        writer.WriteStartArray(name);
+                        foreach (var site in sites)
                             writer.WriteStringValue(site);
                         writer.WriteEndArray();
                     }

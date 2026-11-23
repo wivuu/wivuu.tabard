@@ -449,9 +449,13 @@ tabard writes srt a policy for each launch and runs the agent under it:
   port it [waits for](#running-something-alongside). The developer sites are the code hosts
   (GitHub, GitLab, Bitbucket) and the main package registries (npm, JSR, PyPI, NuGet, crates.io,
   Go's module proxy, RubyGems, Maven Central, Gradle, Packagist) along with their toolchain
-  downloads. A refused site answers `403`. Add sites with `tabard sandbox allow` or the editor's
-  **Allowed sites**: a host (`example.com`), a wildcard (`*.corp.dev`), or a host and port
-  (`localhost:3000`).
+  downloads. A refused site answers `403`.
+- **The editor's Network screen** (`e`, then **Network**) lists every site the sandbox may reach and
+  why: the agent's own (fixed — it cannot work without them), the ones you added, and the
+  defaults. `a` adds sites — a host (`example.com`), a wildcard (`*.corp.dev`), or a host and port
+  (`localhost:3000`) — `x` removes one you added, space blocks a default for this profile (or allows
+  it again), and `r` puts every default back. `tabard sandbox allow` sets the added sites from a
+  shell.
 - **Local model servers** work unchanged: a `models.json` pointing at `http://127.0.0.1:8080/v1`, or
   a port to wait for, reaches that port here through the proxy, and no other local port.
 

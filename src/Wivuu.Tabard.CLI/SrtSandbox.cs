@@ -84,19 +84,10 @@ internal sealed class SrtSandbox : ISandbox
         var temp = TempDir(profile.Name);
         Directory.CreateDirectory(temp);
 
-        var loopback = request
-            .HostPorts.Concat(
-                profile.Harness is Harness.Pi ? PiEndpoints(configDir).LoopbackPorts : []
-            )
-            .Distinct()
-            .Order()
-            .ToList();
-
-        var sites = AgentSites(profile.Harness, configDir)
-            .Concat(DeveloperSites)
-            .Concat(SandboxOptions.AllowedOf(profile.Name))
-            .Concat(loopback.SelectMany(port => new[] { $"127.0.0.1:{port}", $"localhost:{port}" }))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+        var loopback = LoopbackPorts(profile, request.HostPorts);
+        var sites = Network(profile, request.HostPorts)
+            .Where(entry => entry.Allowed)
+            .Select(entry => entry.Site)
             .ToList();
 
         var policy = Policy(
@@ -126,6 +117,76 @@ internal sealed class SrtSandbox : ISandbox
 
         return new SandboxLaunch(psi, Program, () => TryDelete(settings));
     }
+
+    /// <summary>Where a site on a sandbox's list comes from.</summary>
+    internal enum Source
+    {
+        /// <summary>The agent cannot work without it: its provider, or its local server.</summary>
+        Agent,
+
+        /// <summary>Added to this profile.</summary>
+        Added,
+
+        /// <summary>One of <see cref="DeveloperSites"/>, which the profile can block.</summary>
+        Developer,
+    }
+
+    internal sealed record NetworkEntry(string Site, Source Source, bool Allowed);
+
+    /// <summary>
+    /// Every site an srt sandbox of <paramref name="profile"/> is told about, each once, in the
+    /// order the editor lists them: the agent's own, then the profile's additions, then the
+    /// developer defaults - with any the profile blocked marked not allowed.
+    /// </summary>
+    internal static List<NetworkEntry> Network(Profile profile, IReadOnlyList<int> hostPorts)
+    {
+        var configDir = Path.GetFullPath(profile.Dir);
+        var blocked = SandboxOptions.BlockedOf(profile.Name);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var entries = new List<NetworkEntry>();
+
+        void Add(IEnumerable<string> sites, Source source)
+        {
+            foreach (var site in sites)
+            {
+                if (seen.Add(site))
+                    entries.Add(
+                        new(
+                            site,
+                            source,
+                            source is not Source.Developer
+                                || !blocked.Contains(site, StringComparer.OrdinalIgnoreCase)
+                        )
+                    );
+            }
+        }
+
+        Add(
+            AgentSites(profile.Harness, configDir)
+                .Concat(
+                    LoopbackPorts(profile, hostPorts)
+                        .SelectMany(port => new[] { $"127.0.0.1:{port}", $"localhost:{port}" })
+                ),
+            Source.Agent
+        );
+        Add(SandboxOptions.AllowedOf(profile.Name), Source.Added);
+        Add(DeveloperSites, Source.Developer);
+
+        return entries;
+    }
+
+    /// <summary>The ports on this machine the agent talks to: the one it waits for, and for pi any
+    /// base URL in its models.json on this machine.</summary>
+    private static List<int> LoopbackPorts(Profile profile, IReadOnlyList<int> hostPorts) =>
+        hostPorts
+            .Concat(
+                profile.Harness is Harness.Pi
+                    ? PiEndpoints(Path.GetFullPath(profile.Dir)).LoopbackPorts
+                    : []
+            )
+            .Distinct()
+            .Order()
+            .ToList();
 
     /// <summary>
     /// The arguments for 'srt'. When the agent has to reach a port on this machine, it starts

@@ -424,8 +424,8 @@ internal static class Cli
         those it is logged in to - common developer sites (GitHub, GitLab, Bitbucket and the npm,
         PyPI, NuGet, crates.io, Go, RubyGems, Maven and Packagist registries), the profile's allowed
         sites, and the port it waits for (the editor's 'Wait for port'). A refused site answers
-        403; allow it with 'tabard sandbox allow' or the editor's 'Allowed sites': example.com,
-        *.corp.dev, localhost:3000.
+        403; allow it with 'tabard sandbox allow' (example.com, *.corp.dev, localhost:3000), or in
+        the editor's Network screen, which lists every site and can also block a default one.
 
         sbx (Docker Sandboxes, brew install docker/tap/sbx) runs the agent in a microVM. One
         sandbox is made per profile and folder (or repository), and launching again goes back into

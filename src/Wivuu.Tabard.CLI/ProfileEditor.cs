@@ -58,7 +58,7 @@ internal static class ProfileEditor
             Field.Name => "Name",
             Field.Sandbox => "Sandbox",
             Field.Image => "Sandbox image",
-            Field.Allow => "Allowed sites",
+            Field.Allow => "Network",
             Field.Companion => "Run alongside",
             Field.WaitFor => "Wait for port",
             _ => field.ToString(),
@@ -68,10 +68,10 @@ internal static class ProfileEditor
         field switch
         {
             Field.Name => "Also its directory under ~/.tabard/profiles.",
-            Field.Sandbox => "off, srt (this machine's own sandbox) or sbx (a Docker sandbox).",
+            Field.Sandbox =>
+                "off, or whichever of srt (this machine's sandbox) and sbx (Docker) is installed.",
             Field.Image => "What new sandboxes are made from. Blank for sbx's default.",
-            Field.Allow =>
-                "Beyond the agent's own and common dev sites: example.com, localhost:3000.",
+            Field.Allow => "The sites the sandbox may reach. Enter to see and change them.",
             Field.Companion =>
                 $"Runs while the agent does. Output: {Paths.Pretty(Companions.LogFile(profile.Name))}",
             Field.WaitFor => "Launch the agent once this answers: 8080, or host:8080.",
@@ -89,7 +89,7 @@ internal static class ProfileEditor
             Field.Name => profile.Name,
             Field.Sandbox => Sandboxing.IsOn(profile.Name) ? Sandboxes.For(profile).Name : "off",
             Field.Image => Sbx.ImageOf(profile.Name) ?? "",
-            Field.Allow => string.Join(", ", SandboxOptions.AllowedOf(profile.Name)),
+            Field.Allow => NetworkSummary(profile),
             Field.Companion => Companions.Of(profile.Name) ?? "",
             Field.WaitFor => Companions.WaitForOf(profile.Name) ?? "",
             _ => "",
@@ -99,7 +99,6 @@ internal static class ProfileEditor
         field switch
         {
             Field.Image => "(sbx default)",
-            Field.Allow => "(only what the agent needs)",
             Field.Companion => "(nothing)",
             Field.WaitFor => "(launch straight away)",
             _ => "",
@@ -276,6 +275,13 @@ internal static class ProfileEditor
 
                     break;
 
+                case ConsoleKey.Enter
+                or ConsoleKey.Spacebar when field is Field.Allow:
+                    if (!NetworkEditor.Run(profile, ref top, ref frameHeight))
+                        return null;
+
+                    break;
+
                 case ConsoleKey.Enter:
                     // Seeded with the current value, so a small correction is a small edit.
                     draft = new StringBuilder(Value(field, profile));
@@ -328,17 +334,6 @@ internal static class ProfileEditor
                         : $"'{profile.Name}' will make new sandboxes from {value}."
                 );
 
-            case Field.Allow:
-                using (ProfileStore.AcquireLock())
-                    SandboxOptions.SetAllowed(profile.Name, value);
-
-                return (
-                    profile,
-                    SandboxOptions.AllowedOf(profile.Name).Count == 0
-                        ? $"'{profile.Name}' will reach only what {Harnesses.DisplayName(profile.Harness)} needs."
-                        : $"'{profile.Name}' may also reach {string.Join(", ", SandboxOptions.AllowedOf(profile.Name))}."
-                );
-
             case Field.Companion:
                 using (ProfileStore.AcquireLock())
                     Companions.Set(profile.Name, value);
@@ -366,9 +361,27 @@ internal static class ProfileEditor
         }
     }
 
+    /// <summary>How many sites an srt sandbox of the profile may reach, and how that differs
+    /// from the defaults.</summary>
+    internal static string NetworkSummary(Profile profile)
+    {
+        var entries = SrtSandbox.Network(profile, Sandboxes.HostPorts(profile));
+        var added = entries.Count(e => e.Source is SrtSandbox.Source.Added);
+        var blocked = entries.Count(e => !e.Allowed);
+
+        var changes = new List<string>();
+        if (added > 0)
+            changes.Add($"{added} added");
+        if (blocked > 0)
+            changes.Add($"{blocked} blocked");
+
+        return $"{entries.Count(e => e.Allowed)} sites"
+            + (changes.Count > 0 ? $" ({string.Join(", ", changes)})" : "");
+    }
+
     /// <summary>
-    /// The Sandbox field's next setting: off, then each kind of sandbox installed here in turn,
-    /// then off again. The kind is null when switching off, which leaves the kind as it was for the
+    /// The Sandbox field's next setting: off, then each kind of sandbox installed here in turn
+    /// (srt, then sbx), then off again. The kind is null when switching off, which leaves the kind as it was for the
     /// 's' key. With nothing installed, the refusal says what to install instead.
     /// </summary>
     internal static (bool On, ISandbox? Kind, string? Refusal) NextSandbox(Profile profile)
@@ -377,17 +390,16 @@ internal static class ProfileEditor
 
         if (!Sandboxing.IsOn(profile.Name))
         {
-            if (available.Count == 0)
-                return (false, null, Sandboxes.Refusal("") ?? "no sandbox is installed.");
-
-            var current = Sandboxes.For(profile);
-            return (true, available.Contains(current) ? current : available[0], null);
+            // Always from the first installed kind: starting from the one last used would skip
+            // every kind before it, and a profile left on sbx could never get back to srt.
+            return available.Count == 0
+                ? (false, null, Sandboxes.Refusal("") ?? "no sandbox is installed.")
+                : (true, available[0], null);
         }
 
+        // A kind that is no longer installed counts as before the first, so the next is the first.
         var next = available.IndexOf(Sandboxes.For(profile)) + 1;
-        return next > 0 && next < available.Count
-            ? (true, available[next], null)
-            : (false, null, null);
+        return next < available.Count ? (true, available[next], null) : (false, null, null);
     }
 
     /// <summary>
@@ -395,7 +407,7 @@ internal static class ProfileEditor
     /// printing newlines from its last line - the terminal scrolls if it has to, and the frame's top
     /// moves up with it.
     /// </summary>
-    private static void Grow(ref int top, ref int frameHeight, int needed)
+    internal static void Grow(ref int top, ref int frameHeight, int needed)
     {
         if (needed <= frameHeight)
             return;
