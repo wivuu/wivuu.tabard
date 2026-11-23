@@ -163,7 +163,7 @@ internal static class Cli
     }
 
     private const string UseUsage =
-        "usage: tabard use <name> [--sandbox|--no-sandbox] [-- claude args]";
+        "usage: tabard use <name> [--sandbox|--no-sandbox] [-- agent args]";
 
     private static int Use(string[] args)
     {
@@ -315,6 +315,8 @@ internal static class Cli
 
         In the picker, 's' turns it on and off for the highlighted profile.
 
+        Only Claude Code profiles can be sandboxed for now; a sandboxed pi profile refuses to launch.
+
         A sandboxed launch runs 'sbx run claude' (Docker Sandboxes, brew install docker/tap/sbx).
         Claude Code runs in a microVM that sees only the current folder - the whole git repository,
         when the folder is inside one - and the profile's own directory, each at the same path as
@@ -362,15 +364,58 @@ internal static class Cli
         foreach (var warning in warnings)
             Console.Error.WriteLine($"tabard: {warning}");
 
+        var bare = Harnesses.Executable(profile.Harness);
+
         // A warning here means the link was left alone, so the stronger claim would contradict the
         // line above it. The choice was still recorded, and that much is true either way.
         Console.Error.WriteLine(
-            warnings.Count == 0
-                ? $"tabard: switched to '{profile.Name}' - a bare 'claude' now uses it."
-                : $"tabard: recorded '{profile.Name}' as the current profile."
+            profile.Harness is Harness.Claude
+                ? warnings.Count == 0
+                    ? $"tabard: switched to '{profile.Name}' - a bare 'claude' now uses it."
+                    : $"tabard: recorded '{profile.Name}' as the current profile."
+                : ExportToShell(profile)
+                    ? $"tabard: switched to '{profile.Name}' - a bare '{bare}' in this shell now uses it."
+                    : $"tabard: recorded '{profile.Name}' as the current profile - 'tabard use {profile.Name}' "
+                        + $"launches it. For a bare '{bare}' to follow 'tabard switch' in your shell, run "
+                        + "'tabard completion install' and open a new shell."
         );
 
         return 0;
+    }
+
+    /// <summary>The file the shell function in <see cref="Completions"/> hands 'switch'.</summary>
+    internal const string ShellEnvFileVariable = "TABARD_ENV_FILE";
+
+    /// <summary>
+    /// A harness without a link to repoint, like pi, can only follow a switch through its config
+    /// variable, and a child process cannot set that in the shell that started it. The shell
+    /// function that 'tabard completion' installs makes an empty file, names it in
+    /// <see cref="ShellEnvFileVariable"/> and exports what it finds there once tabard exits - so
+    /// the switch reaches that one shell, and nothing else.
+    ///
+    /// One 'NAME=value' line, which the function reads as data rather than running: it exports
+    /// only the variables it knows, so nothing tabard writes here is ever evaluated. A file that
+    /// does not already exist is not one the function made, and is left alone.
+    /// </summary>
+    private static bool ExportToShell(Profile profile)
+    {
+        var file = Environment.GetEnvironmentVariable(ShellEnvFileVariable);
+        if (string.IsNullOrEmpty(file) || !File.Exists(file))
+            return false;
+
+        var dir = Path.GetFullPath(profile.Dir);
+        if (dir.AsSpan().IndexOfAny('\r', '\n') >= 0)
+            return false;
+
+        try
+        {
+            File.WriteAllText(file, $"{Harnesses.ConfigVariable(profile.Harness)}={dir}\n");
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -970,21 +1015,21 @@ internal static class Cli
     {
         Console.WriteLine(
             """
-            tabard - Claude Code profile switcher
+            tabard - profile switcher for Claude Code and pi
 
             Usage:
-              tabard [claude args...]     Launch the profile last used in this folder, or ask if it is new
+              tabard [args...]            Launch the profile last used in this folder, or ask if it is new
               tabard select [-- ...]      Pick or create a profile, then launch
               tabard use <name> [-- ...]  Launch a specific profile
-              tabard switch [name]        Point ~/.claude at a profile without launching
+              tabard switch [name]        Make a profile the current one without launching
               tabard add <name>           Create a profile: Claude Code (Anthropic or OpenRouter) or pi
               tabard rm <name>            Delete a profile
               tabard sandbox <cmd>        Launch a profile inside a Docker sandbox, or not
               tabard ls                   List profiles
-              tabard openrouter <cmd>     Configure a profile's OpenRouter settings
+              tabard openrouter <cmd>     Configure a Claude Code profile's OpenRouter settings
               tabard completion install   Install tab completion for zsh, bash or PowerShell
-              tabard --version            Show tabard's version ('tabard -- --version' for Claude Code's)
-              tabard -- <claude args>     Force everything through to claude
+              tabard --version            Show tabard's version ('tabard -- --version' for the agent's)
+              tabard -- <args>            Pass everything through to the profile's agent
 
             Picker keys:
               up/down or j/k   move
@@ -1000,17 +1045,23 @@ internal static class Cli
             Each folder's last profile is saved in ~/.tabard/directories.json.
             A mark beside a profile means it launches in a Docker sandbox; see 'tabard sandbox help'.
 
-            Profiles live in ~/.tabard/profiles/<name> and are passed to Claude Code
-            as CLAUDE_CONFIG_DIR, so each one keeps its own login, settings and history.
-            A pi profile is passed to pi as PI_CODING_AGENT_DIR instead; which profiles
-            launch pi is saved in ~/.tabard/harnesses.
+            Each profile is a directory in ~/.tabard/profiles/<name> with its own login, settings
+            and history, and launches one agent:
+              Claude Code   given the directory as CLAUDE_CONFIG_DIR. Launching or switching to a
+                            Claude Code profile also points ~/.claude at it, so a bare 'claude'
+                            follows your choice.
+              pi            given the directory as PI_CODING_AGENT_DIR. ~/.pi/agent is left alone;
+                            'tabard switch' sets the variable for the shell it runs in, so a
+                            bare 'pi' there follows it (bash and zsh, after 'tabard completion
+                            install').
+            Which profiles launch pi is saved in ~/.tabard/harnesses.
 
             'tabard add <name> --pi' makes a pi profile without asking.
             'tabard add <name> --from <profile>' starts it with that profile's login, settings,
-            MCP servers, hooks, plugins and skills - never its history. For pi, '--from pi' copies your own
-            ~/.pi/agent setup.
-            'tabard add <name> --openrouter' skips the provider question; see
-            'tabard openrouter help' for the rest.
+            MCP servers, hooks, plugins and skills - never its history. For pi, '--from pi' copies
+            your own ~/.pi/agent setup.
+            'tabard add <name> --openrouter' makes a Claude Code profile that uses OpenRouter;
+            see 'tabard openrouter help' for the rest.
             """
         );
 

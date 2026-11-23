@@ -3,7 +3,9 @@
 [![CI](https://github.com/wivuu/wivuu.tabard/actions/workflows/ci.yml/badge.svg)](https://github.com/wivuu/wivuu.tabard/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/Wivuu.Tabard.svg)](https://www.nuget.org/packages/Wivuu.Tabard)
 
-A Claude Code profile switcher. Launch `claude` through `tabard` and pick which login to use.
+A profile switcher for coding agents: [Claude Code](https://docs.claude.com/en/docs/claude-code) and
+[pi](https://github.com/badlogic/pi-mono). Launch your agent through `tabard` and pick which login,
+settings and history it uses.
 
 ## Install
 
@@ -45,43 +47,46 @@ source, see [other ways to install](#other-ways-to-install).
 
 ```sh
 tabard                       # launch the profile last used in this folder
-tabard select                # pick or create a profile, then launch claude
+tabard select                # pick or create a profile, then launch it
 tabard use work              # launch a specific profile
-tabard switch work           # repoint ~/.claude at a profile, without launching
-tabard add personal          # create a profile (Anthropic or OpenRouter)
+tabard switch work           # make a profile current, without launching
+tabard add personal          # create a profile (Claude Code or pi)
+tabard add local --pi        # a pi profile, without the question
 tabard sandbox on work       # launch it inside a Docker sandbox from now on
 tabard ls                    # list profiles — never changes anything
 ```
 
 | Command | What it does |
 | --- | --- |
-| `tabard [claude args...]` | Launch the profile last used in this folder, or ask if it is new |
+| `tabard [args...]` | Launch the profile last used in this folder, or ask if it is new |
 | `tabard select [-- ...]` | Pick or create a profile, then launch |
 | `tabard use <name> [-- ...]` | Launch a specific profile |
-| `tabard switch [name]` | Point `~/.claude` at a profile without launching |
-| `tabard add <name>` | Create a profile, choosing Anthropic or OpenRouter |
+| `tabard switch [name]` | Make a profile current without launching: repoints `~/.claude`, or for pi sets it in this shell |
+| `tabard add <name>` | Create a profile: Claude Code (Anthropic or [OpenRouter](#openrouter-profiles)) or [pi](#pi-profiles) |
 | `tabard rm <name>` | Delete a profile |
 | `tabard sandbox on\|off <name>` | Launch a profile in a [Docker sandbox](#sandboxed-profiles), or not |
 | `tabard ls` | List profiles |
-| `tabard openrouter <cmd>` | Configure a profile's [OpenRouter settings](#openrouter-profiles) |
+| `tabard openrouter <cmd>` | Configure a Claude Code profile's [OpenRouter settings](#openrouter-profiles) |
 | `tabard completion install` | Install [tab completion](#tab-completion) for zsh, bash or PowerShell |
-| `tabard -- <claude args>` | Force everything through to claude |
+| `tabard -- <args>` | Pass everything through to the profile's agent |
 
+Arguments that aren't tabard's go to the agent the profile launches — `claude` or `pi`.
 `tabard --help` and `tabard --version` are tabard's own; `tabard -- --help` and
-`tabard -- --version` reach Claude Code's.
+`tabard -- --version` reach the agent's.
 
 **First run** adopts your existing login, so there is nothing to set up: `~/.claude` is moved to
 `~/.tabard/profiles/default` and linked back.
 
 **In a folder tabard hasn't seen**, you get the selector, where the number beside a profile launches
 it outright and the last row creates a new one. From then on, a bare `tabard` in that folder goes
-straight into `claude` with the profile you last used there:
+straight into the profile you last used there:
 
 ```
-  Select a Claude profile
+  Select a profile
 
-  1 > ■ work              erik@example.com  -  max  -  valid 7h
-  2     personal          erik@gmail.com    -  pro  -  refresh due
+  1 > ■ work              claude  you@example.com  -  max  -  valid 7h
+  2     personal          claude  you@example.org  -  pro  -  refresh due
+  3     local             pi      ollama  -  qwen3-coder
       + new profile       name it, then log in or connect OpenRouter
 
   enter/1-9 launch   s ■ sandbox   o reorder   r rename   x x delete   q quit
@@ -104,7 +109,15 @@ terminal starts a login shell — or your PowerShell `$PROFILE`. It only ever ap
 rewrites, and adds nothing twice, so it is safe to run again after an upgrade. Open a new shell to
 pick it up.
 
-Homebrew installs the zsh and bash completions itself, so `brew install tabard` needs none of this.
+The script also defines a `tabard` shell function, which passes everything straight through except
+`tabard switch`: that it runs with an empty temporary file to write to, then exports
+`PI_CODING_AGENT_DIR` from it, so [switching to a pi profile](#behaviour) reaches the shell. The file
+is read as data and nothing else is exported from it. The script is a snapshot, so after upgrading
+from a tabard without this, run `tabard completion install` again and open a new shell.
+
+Homebrew installs the zsh and bash completions itself, so `brew install tabard` needs none of this —
+except for that shell function, which only a sourced script defines. Run `tabard completion install`
+too if you want `tabard switch` to follow pi profiles.
 
 To load it without touching a startup file:
 
@@ -119,16 +132,20 @@ profile you add or rename completes straight away and an upgrade needs no re-ins
 
 ## How it works
 
-Claude Code reads its whole config root from one directory (`~/.claude` by default), and the
-`CLAUDE_CONFIG_DIR` environment variable redirects all of it — settings, `.credentials.json`,
-`CLAUDE.md`, project configs, history.
+Both agents read their whole config root from one directory, and one environment variable redirects
+all of it — settings, credentials, instructions, history:
 
-So tabard does **not** copy credentials in and out of `~/.claude`. Each profile is just a directory
-under `~/.tabard/profiles/<name>`, and switching means setting `CLAUDE_CONFIG_DIR` and exec'ing
-`claude`. Two consequences worth understanding:
+| Agent | Default directory | Variable |
+| --- | --- | --- |
+| Claude Code | `~/.claude` | `CLAUDE_CONFIG_DIR` |
+| pi | `~/.pi/agent` | `PI_CODING_AGENT_DIR` |
 
-- **No sync-back problem.** Claude Code rotates refresh tokens in place. A design that copies
-  credentials into `~/.claude` on launch and copies them back on exit will silently kill saved
+So tabard does **not** copy credentials in and out of those directories. Each profile is just a
+directory under `~/.tabard/profiles/<name>`, and launching means setting the agent's variable and
+exec'ing `claude` or `pi`. Two consequences worth understanding:
+
+- **No sync-back problem.** Agents rotate refresh tokens in place. A design that copies
+  credentials into the default directory on launch and copies them back on exit will silently kill saved
   profiles the first time a rotation isn't captured. Pointing at the directory avoids the whole class of bug.
 - **Concurrent sessions work.** Two terminals, two profiles, no clobbering.
 
@@ -175,13 +192,13 @@ too short for every profile the list scrolls and the help line says how many are
 it is too short for a frame at all (under seven rows), tabard prints the list and asks you to name
 one rather than draw something you can't read.
 
-After a launch, `~/.claude` is repointed at whichever profile launched, so a bare `claude`
+After a launch of a Claude Code profile, `~/.claude` is repointed at it, so a bare `claude`
 invocation stays consistent with the last one — including a launch that came from a folder's memory
 rather than a choice, so it moves as you work across folders. `tabard ls` never adopts or repoints
 anything — it is safe to run first just to see what tabard would do.
 
 `tabard switch` is that repointing on its own: it records the choice in `~/.tabard/last`, moves the
-`~/.claude` and `~/.claude.json` links, and exits without starting anything. That's what you want
+`~/.claude` and `~/.claude.json` links (for a Claude Code profile), and exits without starting anything. That's what you want
 when the next `claude` is going to be typed by something other than tabard — an editor's integrated
 terminal, a shell alias, a script. With a name it switches straight to it; without one it opens the
 same picker, where `enter` and `1`-`9` switch instead of launching. It creates nothing, so there is
@@ -190,14 +207,22 @@ one it just repairs the links. Since it starts nothing it doesn't change what a 
 later bare `tabard` in a folder that remembers another profile launches that one and moves the links
 back.
 
+Switching to a pi profile has no link to move: `~/.pi/agent` also holds the pi install itself, so
+tabard never replaces it. Instead `tabard switch` sets `PI_CODING_AGENT_DIR` in the shell you run it
+from, so a bare `pi` in that shell uses the profile — and only that shell: other terminals, your
+editor and new shells keep using `~/.pi/agent`. A program cannot change its parent shell's
+environment, so this is done by a small `tabard` shell function that comes with
+[tab completion](#tab-completion) for bash and zsh. Without it, switching to a pi profile just
+records the choice, and `tabard use <name>` launches it.
+
 ## OpenRouter profiles
 
-A profile does not have to be an Anthropic login. Claude Code will talk to
+A Claude Code profile does not have to be an Anthropic login. Claude Code will talk to
 [OpenRouter](https://openrouter.ai) given the right environment, and since it reads `settings.json`
 out of `CLAUDE_CONFIG_DIR`, that environment can live *inside the profile* — no wrapper, no
 exported variables, and a bare `claude` behaves exactly like `tabard use <name>`.
 
-`tabard add <name>` asks which provider you want. Picking OpenRouter runs a short wizard: the API
+For a Claude Code profile, `tabard add <name>` asks which provider you want. Picking OpenRouter runs a short wizard: the API
 key (from `$OPENROUTER_API_KEY` if it is set, otherwise typed in with the echo masked), then how to
 map Claude Code's model tiers, then a summary to confirm. The key is checked against OpenRouter
 before anything is written, so a typo is caught there rather than on your first prompt.
@@ -313,12 +338,13 @@ its `settings.json` starts with. Which profiles launch pi is saved in `~/.tabard
 every profile, so an agent cannot change what tabard launches next time.
 
 `~/.claude` only ever points at Claude Code profiles: launching or switching to a pi profile leaves
-it where it was. Sandboxing a pi profile is not supported yet — a pi profile marked sandboxed refuses
+it where it was, and `~/.pi/agent` is never touched. `tabard switch` to a pi profile instead sets
+`PI_CODING_AGENT_DIR` for the shell it runs in; see [Behaviour](#behaviour). Sandboxing a pi profile is not supported yet — a pi profile marked sandboxed refuses
 to launch rather than run outside one.
 
 ## Sandboxed profiles
 
-A profile can launch Claude Code inside a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) —
+A Claude Code profile can launch inside a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) —
 a microVM that sees the current folder (the whole git repository, when the folder is inside one) and
 nothing else of your machine. It needs `sbx` (`brew install docker/tap/sbx`,
 then `sbx login`) and macOS or Linux.

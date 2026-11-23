@@ -489,7 +489,7 @@ internal static class Picker
     {
         var lines = new List<Line>(frameHeight)
         {
-            new("  Select a Claude profile", ConsoleColor.White),
+            new("  Select a profile", ConsoleColor.White),
             new("", null),
         };
 

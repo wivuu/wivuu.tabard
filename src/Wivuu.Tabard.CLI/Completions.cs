@@ -461,13 +461,46 @@ internal static class Completions
         	done < <("$1" __complete "$COMP_CWORD" "${COMP_WORDS[@]}" 2>/dev/null)
         }
 
+        # 'tabard switch' to a pi profile sets PI_CODING_AGENT_DIR in this shell, so a bare 'pi'
+        # here follows it. tabard is a child process and cannot set it itself: it writes the value
+        # to a file this makes, and this reads it back - as data, exporting only that one variable.
+        tabard() {
+        	case "$1" in
+        	switch | sw) ;;
+        	*)
+        		command tabard "$@"
+        		return
+        		;;
+        	esac
+
+        	local _tabard_env _tabard_status _tabard_line
+        	_tabard_env="$(mktemp "${TMPDIR:-/tmp}/tabard-env.XXXXXX")" || {
+        		command tabard "$@"
+        		return
+        	}
+
+        	TABARD_ENV_FILE="$_tabard_env" command tabard "$@"
+        	_tabard_status=$?
+
+        	while IFS= read -r _tabard_line || [ -n "$_tabard_line" ]; do
+        		case "$_tabard_line" in
+        		PI_CODING_AGENT_DIR=?*) export "$_tabard_line" ;;
+        		esac
+        	done <"$_tabard_env"
+
+        	rm -f "$_tabard_env"
+        	return "$_tabard_status"
+        }
+
         complete -F _tabard_complete tabard
         """;
 
     /// <summary>
     /// Written to work both ways round: sourced from a .zshrc, and autoloaded from an fpath
     /// directory under the name '_tabard' - which is where Homebrew puts it, and the only one of
-    /// the two that needs the '#compdef' line and the self-call.
+    /// the two that needs the '#compdef' line and the self-call. The 'tabard' function is only
+    /// defined when sourced: an autoloaded file runs on the first tab press, and a 'switch' that
+    /// starts working halfway through a session would be stranger than one that never does.
     /// </summary>
     private const string Zsh = """
         #compdef tabard
@@ -499,6 +532,37 @@ internal static class Completions
         	# silently does nothing.
         	(( $+functions[compdef] )) || { autoload -Uz compinit && compinit }
         	compdef _tabard_complete tabard
+
+        	# 'tabard switch' to a pi profile sets PI_CODING_AGENT_DIR in this shell, so a bare 'pi'
+        	# here follows it. tabard is a child process and cannot set it itself: it writes the value
+        	# to a file this makes, and this reads it back - as data, exporting only that one variable.
+        	tabard() {
+        		case "$1" in
+        		switch | sw) ;;
+        		*)
+        			command tabard "$@"
+        			return
+        			;;
+        		esac
+
+        		local _tabard_env _tabard_status _tabard_line
+        		_tabard_env="$(mktemp "${TMPDIR:-/tmp}/tabard-env.XXXXXX")" || {
+        			command tabard "$@"
+        			return
+        		}
+
+        		TABARD_ENV_FILE="$_tabard_env" command tabard "$@"
+        		_tabard_status=$?
+
+        		while IFS= read -r _tabard_line || [ -n "$_tabard_line" ]; do
+        			case "$_tabard_line" in
+        			PI_CODING_AGENT_DIR=?*) export "$_tabard_line" ;;
+        			esac
+        		done <"$_tabard_env"
+
+        		rm -f "$_tabard_env"
+        		return "$_tabard_status"
+        	}
         fi
         """;
 
