@@ -7,14 +7,13 @@ using System.Text.Json;
 namespace Wivuu.Tabard.Cli;
 
 /// <summary>
-/// Which profiles launch inside a Docker sandbox (<c>sbx</c>), and how such a launch is put
-/// together.
+/// Which profiles launch inside a sandbox, and what any sandbox is given - whichever kind of
+/// sandbox it is (<see cref="Sandboxes"/>).
 ///
 /// A sandboxed launch keeps the rest of tabard's model: the profile is still just a directory
-/// handed to Claude Code as CLAUDE_CONFIG_DIR. The difference is that Claude Code runs inside a
-/// microVM, which sees the current folder and the profile's directory - both mounted at the same
-/// paths they have here, so the per-project entries in .claude.json still line up - and nothing
-/// else of the host.
+/// handed to the agent. The difference is that the agent runs somewhere that sees the current
+/// folder and the profile's directory - both at the same paths they have here, so the per-project
+/// entries in .claude.json still line up - and nothing else of the host.
 ///
 /// The on/off list is a hint like ~/.tabard/order: a name in it for a profile that has gone is
 /// ignored. It lives outside every profile, because the sandbox can write to its own profile and
@@ -22,16 +21,6 @@ namespace Wivuu.Tabard.Cli;
 /// </summary>
 internal static class Sandboxing
 {
-    public const string Executable = "sbx";
-
-    /// <summary>The 'sbx' agent tabard launches. One of sbx's built-ins.</summary>
-    private const string Agent = "claude";
-
-    /// <summary>sbx refuses longer names.</summary>
-    private const int MaxNameLength = 63;
-
-    private const int SlugLength = 20;
-
     /// <summary>
     /// Mounted read-only inside the sandbox when they exist. Everything here either runs code or
     /// instructs Claude in a later session on the host, and a sandbox that could rewrite them could
@@ -50,6 +39,31 @@ internal static class Sandboxing
         "skills",
         "output-styles",
     ];
+
+    /// <summary>
+    /// pi's equivalent. Extensions are code pi loads on start; settings.json can name packages to
+    /// install and run; models.json says where pi sends its prompts; the rest instruct it. auth.json
+    /// and sessions stay writable, for the same reasons as Claude Code's credentials and history.
+    /// </summary>
+    private static readonly string[] PiProtected =
+    [
+        "settings.json",
+        "models.json",
+        "keybindings.json",
+        "AGENTS.md",
+        "SYSTEM.md",
+        "APPEND_SYSTEM.md",
+        "extensions",
+        "skills",
+        "prompts",
+        "themes",
+        "packages",
+        "bin",
+    ];
+
+    /// <summary>What has to exist before a pi sandbox is made, because read-only only covers what
+    /// is there: a missing extensions folder is one the sandbox could create, and fill.</summary>
+    private static readonly string[] PiFolders = ["extensions", "skills", "prompts", "themes"];
 
     /// <summary>Loose scripts at the top of a profile are usually what a status line or a hook in
     /// settings.json points at, so they get the same treatment as the folders above.</summary>
@@ -132,27 +146,6 @@ internal static class Sandboxing
         TryWrite(names);
     }
 
-    /// <summary>Called by <see cref="ProfileStore.Rename"/> and <see cref="ProfileStore.Delete"/>
-    /// whether or not the profile is sandboxed: an image can be set while sandboxing is off.</summary>
-    public static void MoveImage(string from, string? to)
-    {
-        try
-        {
-            var images = Images();
-            if (!images.Remove(from, out var image))
-                return;
-
-            if (to is not null)
-                images[to] = image;
-
-            WriteImages(images);
-        }
-        catch
-        {
-            // Housekeeping riding along with a rename or delete that has already changed the disk.
-        }
-    }
-
     /// <summary>A profile created later under the same name must start out the way every new
     /// profile does, not inherit this one's setting.</summary>
     public static void ForgetProfile(string profile)
@@ -185,65 +178,12 @@ internal static class Sandboxing
         File.Move(temp, Paths.SandboxedFile, overwrite: true);
     }
 
-    /// <summary>
-    /// One sandbox per profile and folder. sbx only takes mounts when it creates a sandbox, so a
-    /// sandbox made for one profile can never be reused for another - the profile has to be in the
-    /// name. The readable part is for 'sbx ls'; the hash is what keeps two folders that slug the
-    /// same, or two profiles that do, from colliding.
-    /// </summary>
-    public static string SandboxName(string profile, string workspace, string? image = null)
-    {
-        // The image is part of the key only when there is one, so the sandboxes made before images
-        // could be chosen keep their names. With it, choosing another image makes a new sandbox
-        // rather than going back into one sbx made from the old image.
-        var key = image is { Length: > 0 }
-            ? $"{profile}\0{workspace}\0{image}"
-            : $"{profile}\0{workspace}";
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..8];
-
-        var parts = new List<string> { "tabard" };
-
-        if (Slug(profile) is { Length: > 0 } p)
-            parts.Add(p);
-
-        if (
-            Slug(Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace))) is
-            { Length: > 0 } w
-        )
-            parts.Add(w);
-
-        parts.Add(hash);
-
-        var name = string.Join('-', parts);
-        return name.Length <= MaxNameLength ? name : name[..MaxNameLength];
-    }
-
-    /// <summary>Lower-case letters, digits and single hyphens - sbx accepts periods too, but its
-    /// cloud side does not, and a name that works in one place should work in both.</summary>
-    internal static string Slug(string text)
-    {
-        var slug = new StringBuilder(SlugLength);
-
-        foreach (var c in text.ToLowerInvariant())
-        {
-            if (slug.Length == SlugLength)
-                break;
-
-            if (c is >= 'a' and <= 'z' or >= '0' and <= '9')
-                slug.Append(c);
-            else if (slug.Length > 0 && slug[^1] != '-')
-                slug.Append('-');
-        }
-
-        return slug.ToString().Trim('-');
-    }
-
     /// <summary>What of <paramref name="profileDir"/> the sandbox may read but not change.</summary>
-    public static List<string> ReadOnlyPaths(string profileDir)
+    public static List<string> ReadOnlyPaths(string profileDir, Harness harness = Harness.Claude)
     {
         var paths = new List<string>();
 
-        foreach (var entry in Protected)
+        foreach (var entry in harness is Harness.Pi ? PiProtected : Protected)
         {
             var path = Path.Combine(profileDir, entry);
             if (File.Exists(path) || Directory.Exists(path))
@@ -344,57 +284,6 @@ internal static class Sandboxing
             outer.EndsWith(Path.DirectorySeparatorChar)
             && inner.StartsWith(outer, StringComparison.Ordinal)
         );
-
-    /// <summary>
-    /// The arguments for 'sbx'. Creating takes the image and the mounts, which sbx fixes at
-    /// creation; going back into one that exists takes only the name, because sbx keeps the rest.
-    /// The environment and the working directory are passed both times - sbx applies them to the
-    /// session, not just to the sandbox it creates. Permission prompts stay on unless
-    /// <paramref name="claudeArgs"/> asks for bypass mode; see <see cref="KeepPrompts"/>.
-    /// </summary>
-    public static List<string> RunArgs(
-        string sandbox,
-        string profileDir,
-        Workspace workspace,
-        bool exists,
-        IReadOnlyList<string> claudeArgs,
-        string? image = null,
-        IReadOnlyList<string>? environment = null
-    )
-    {
-        var configDir = Path.GetFullPath(profileDir);
-
-        List<string> args = exists ? ["run", "--name", sandbox] : ["run", Agent, "--name", sandbox];
-
-        if (!exists && image is { Length: > 0 })
-            args.AddRange(["-t", image]);
-
-        if (!string.Equals(workspace.WorkDir, workspace.Root, StringComparison.Ordinal))
-            args.AddRange(["-w", workspace.WorkDir]);
-
-        args.AddRange(["-e", $"CLAUDE_CONFIG_DIR={configDir}"]);
-
-        foreach (var variable in environment ?? [])
-            args.AddRange(["-e", variable]);
-
-        if (!exists)
-        {
-            args.Add(workspace.Root);
-            args.AddRange(workspace.Writable);
-            args.Add(configDir);
-            args.AddRange(workspace.ReadOnly.Select(path => $"{path}:ro"));
-            args.AddRange(ReadOnlyPaths(configDir).Select(path => $"{path}:ro"));
-        }
-
-        args.Add("--");
-
-        if (!AsksToBypass(claudeArgs))
-            args.AddRange(["--settings", KeepPrompts]);
-
-        args.AddRange(claudeArgs);
-
-        return args;
-    }
 
     /// <summary>
     /// What a launch from <paramref name="cwd"/> mounts. Inside a git repository that is the whole
@@ -591,288 +480,20 @@ internal static class Sandboxing
     }
 
     /// <summary>
-    /// The image a profile's sandboxes are made from, or null for sbx's default. Kept like the
-    /// on/off list - '&lt;image&gt; &lt;name&gt;' per line, an image never holding a space - and failing
-    /// soft to the default the same way.
+    /// Fills in what <see cref="ReadOnlyPaths"/> has to find, because read-only only covers what
+    /// exists: a profile without a settings file would let the sandbox create one, hooks and all.
     /// </summary>
-    public static Dictionary<string, string> Images()
-    {
-        var images = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        try
-        {
-            if (!File.Exists(Paths.ImagesFile))
-                return images;
-
-            foreach (var line in File.ReadLines(Paths.ImagesFile))
-            {
-                var space = line.IndexOf(' ');
-                if (space <= 0)
-                    continue;
-
-                var name = line[(space + 1)..].Trim();
-                if (name.Length > 0)
-                    images[name] = line[..space];
-            }
-        }
-        catch
-        {
-            images.Clear();
-        }
-
-        return images;
-    }
-
-    public static string? ImageOf(string profile) =>
-        Images().TryGetValue(profile, out var image) ? image : null;
-
-    /// <summary>Null goes back to sbx's default. Callers hold
-    /// <see cref="ProfileStore.AcquireLock"/>, as for <see cref="Set"/>.</summary>
-    public static void SetImage(string profile, string? image)
-    {
-        if (image is not null && (image.Length == 0 || image.Any(char.IsWhiteSpace)))
-            throw new ArgumentException($"'{image}' is not an image reference.");
-
-        if (image is not null && profile.AsSpan().IndexOfAny('\r', '\n') >= 0)
-            throw new InvalidOperationException(
-                "cannot set an image for a profile whose name holds a line break - rename it first."
-            );
-
-        var images = Images();
-        var changed = image is null
-            ? images.Remove(profile)
-            : !images.TryGetValue(profile, out var was) || was != image;
-
-        if (image is not null)
-            images[profile] = image;
-
-        if (changed)
-            WriteImages(images);
-    }
-
-    private static void WriteImages(Dictionary<string, string> images)
-    {
-        Directory.CreateDirectory(Paths.TabardRoot);
-
-        var temp = $"{Paths.ImagesFile}.{Environment.ProcessId}.tmp";
-        File.WriteAllLines(
-            temp,
-            images
-                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                .Select(pair => $"{pair.Value} {pair.Key}")
-        );
-        File.Move(temp, Paths.ImagesFile, overwrite: true);
-    }
-
-    /// <summary>
-    /// sbx's claude image launches <c>claude --dangerously-skip-permissions</c> and appends the
-    /// agent arguments after it, so nothing passed here can take that flag back. This setting
-    /// can: Claude Code refuses bypass mode while it is set, whatever the command line says, and
-    /// falls back to asking. As a <c>--settings</c> argument it lasts for this session only and is
-    /// never written into the profile, which a direct launch shares.
-    /// </summary>
-    internal const string KeepPrompts =
-        """{"permissions":{"disableBypassPermissionsMode":"disable"}}""";
-
-    /// <summary>Asking for bypass mode the way you would ask a direct launch for it is the opt-in:
-    /// the sandbox then runs without prompts, as sbx intends.</summary>
-    internal static bool AsksToBypass(IReadOnlyList<string> claudeArgs)
-    {
-        for (var i = 0; i < claudeArgs.Count; i++)
-        {
-            var arg = claudeArgs[i];
-
-            if (arg is "--dangerously-skip-permissions" or "--allow-dangerously-skip-permissions")
-                return true;
-
-            if (arg == "--permission-mode=bypassPermissions")
-                return true;
-
-            if (
-                arg == "--permission-mode"
-                && i + 1 < claudeArgs.Count
-                && claudeArgs[i + 1] == "bypassPermissions"
-            )
-                return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// The settings file has to exist before the sandbox is made, because read-only only covers
-    /// what is there: a profile without one would let the sandbox create it, hooks and all.
-    /// </summary>
-    public static void Prepare(string profileDir)
+    public static void Prepare(string profileDir, Harness harness = Harness.Claude)
     {
         var settings = Settings.FileFor(profileDir);
         if (!File.Exists(settings))
             File.WriteAllText(settings, "{}\n");
-    }
 
-    /// <summary>
-    /// Whether sbx already has a sandbox by this name. A failed listing counts as no: the create
-    /// that follows will fail with sbx's own explanation - not signed in, daemon down - which is
-    /// more use than anything tabard could say about it.
-    /// </summary>
-    public static bool Exists(string executable, string sandbox)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo(executable)
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-
-            psi.ArgumentList.Add("ls");
-            psi.ArgumentList.Add("-q");
-
-            using var proc = Process.Start(psi);
-            if (proc is null)
-                return false;
-
-            // Drained concurrently: a full stderr pipe would stall a process we are waiting on.
-            var stderr = proc.StandardError.ReadToEndAsync();
-            var stdout = proc.StandardOutput.ReadToEnd();
-
-            if (!proc.WaitForExit(TimeSpan.FromSeconds(30)))
-            {
-                proc.Kill(entireProcessTree: true);
-                return false;
-            }
-
-            _ = stderr.Result;
-
-            return proc.ExitCode == 0
-                && stdout
-                    .Split(
-                        '\n',
-                        StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries
-                    )
-                    .Contains(sandbox, StringComparer.Ordinal);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Takes back the MCP server sbx registers in the profile's .claude.json when a sandbox starts.
-    /// It points at a host name that only resolves inside a sandbox, so left there it would greet
-    /// every session of this profile on the host with a server that fails to connect. Only entries
-    /// aimed at <c>*.docker.internal</c> go; the file is rewritten only if there is one, and is
-    /// otherwise left byte for byte as it was. Returns a problem to report, or null.
-    /// </summary>
-    public static string? ForgetGateway(string claudeJson)
-    {
-        var temp = $"{claudeJson}.{Environment.ProcessId}.tmp";
-
-        try
-        {
-            if (!File.Exists(claudeJson))
-                return null;
-
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(claudeJson));
-            var root = doc.RootElement;
-
-            if (
-                root.ValueKind is not JsonValueKind.Object
-                || !root.TryGetProperty("mcpServers", out var servers)
-                || servers.ValueKind is not JsonValueKind.Object
-                || !servers.EnumerateObject().Any(IsGateway)
-            )
-            {
-                return null;
-            }
-
-            using (
-                var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None)
-            )
-            {
-                CopyMode(claudeJson, temp);
-
-                using var writer = new Utf8JsonWriter(
-                    stream,
-                    new JsonWriterOptions
-                    {
-                        Indented = true,
-                        // The file is Claude Code's, and holds paths and project names in whatever
-                        // script they were written. Keep them readable rather than \u-escaped.
-                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                    }
-                );
-
-                writer.WriteStartObject();
-
-                foreach (var property in root.EnumerateObject())
-                {
-                    if (!property.NameEquals("mcpServers"))
-                    {
-                        property.WriteTo(writer);
-                        continue;
-                    }
-
-                    writer.WritePropertyName(property.Name);
-                    writer.WriteStartObject();
-
-                    foreach (var server in property.Value.EnumerateObject())
-                    {
-                        if (!IsGateway(server))
-                            server.WriteTo(writer);
-                    }
-
-                    writer.WriteEndObject();
-                }
-
-                writer.WriteEndObject();
-            }
-
-            File.Move(temp, claudeJson, overwrite: true);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            try
-            {
-                File.Delete(temp);
-            }
-            catch
-            {
-                // Inert if it lingers.
-            }
-
-            return $"could not remove the sandbox's MCP gateway from {Paths.Pretty(claudeJson)} ({ex.Message}).";
-        }
-    }
-
-    private static bool IsGateway(JsonProperty server) =>
-        server.Value.ValueKind is JsonValueKind.Object
-        && server.Value.TryGetProperty("url", out var url)
-        && url.ValueKind is JsonValueKind.String
-        && Uri.TryCreate(url.GetString(), UriKind.Absolute, out var uri)
-        && (
-            uri.Host.Equals("docker.internal", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.EndsWith(".docker.internal", StringComparison.OrdinalIgnoreCase)
-        );
-
-    /// <summary>.claude.json is 0600 when Claude Code made it - it names the account - and a
-    /// rewrite must not loosen that.</summary>
-    private static void CopyMode(string from, string to)
-    {
-        if (OperatingSystem.IsWindows())
+        if (harness is not Harness.Pi)
             return;
 
-        try
-        {
-            File.SetUnixFileMode(to, File.GetUnixFileMode(from));
-        }
-        catch
-        {
-            // Best effort, as for the profile directories.
-        }
+        foreach (var folder in PiFolders)
+            Directory.CreateDirectory(Path.Combine(profileDir, folder));
     }
 
     /// <summary>Shared by the picker's status line and 'tabard sandbox', so the key and the command

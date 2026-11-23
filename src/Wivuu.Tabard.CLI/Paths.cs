@@ -42,6 +42,10 @@ internal static class Paths
     /// for the same reason as <see cref="SandboxedFile"/>. See <see cref="Harnesses"/>.</summary>
     public static string HarnessesFile { get; } = Path.Combine(TabardRoot, "harnesses");
 
+    /// <summary>The command each profile runs alongside its agent. Outside every profile for the same
+    /// reason as <see cref="SandboxedFile"/>. See <see cref="Companions"/>.</summary>
+    public static string CompanionsFile { get; } = Path.Combine(TabardRoot, "companions.json");
+
     /// <summary>Where 'tabard completion install' leaves the script it points a shell at.</summary>
     public static string CompletionsRoot { get; } = Path.Combine(TabardRoot, "completions");
 

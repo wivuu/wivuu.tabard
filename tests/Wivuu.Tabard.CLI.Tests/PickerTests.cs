@@ -99,6 +99,54 @@ public class PickerTests
         await Assert.That(Help(switching: true)).DoesNotContain("sandbox");
     }
 
+    /// <summary>'e' opens every setting for the row, rename included, so it takes 'r rename''s
+    /// place in a legend that has no room for both.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Help_offers_the_editor(bool switching)
+    {
+        await Assert.That(Help(switching)).Contains("e edit").And.DoesNotContain("rename");
+    }
+
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    public async Task Editor_help_fits_the_window(bool typing, bool onToggle)
+    {
+        await Assert.That(ProfileEditor.Help(typing, onToggle).Length).IsLessThanOrEqualTo(80);
+    }
+
+    /// <summary>A pi profile's sandboxes come from tabard's own template, so it has no image to
+    /// choose - but it can be sandboxed.</summary>
+    [Test]
+    public async Task Editor_offers_the_image_only_to_claude()
+    {
+        var claude = new Profile
+        {
+            Name = "work",
+            Dir = "/p/work",
+            Harness = Harness.Claude,
+        };
+        var pi = new Profile
+        {
+            Name = "local",
+            Dir = "/p/local",
+            Harness = Harness.Pi,
+        };
+
+        await Assert.That(ProfileEditor.Fields(claude)).Contains(ProfileEditor.Field.Image);
+        await Assert
+            .That(ProfileEditor.Fields(pi))
+            .IsEquivalentTo([
+                ProfileEditor.Field.Name,
+                ProfileEditor.Field.Sandbox,
+                ProfileEditor.Field.Companion,
+                ProfileEditor.Field.WaitFor,
+            ]);
+    }
+
     private static string Help(bool switching) =>
         Picker.Help(
             switching ? PickerAction.Switch : PickerAction.Launch,

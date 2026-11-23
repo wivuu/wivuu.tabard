@@ -54,7 +54,7 @@ internal static class Picker
             return ShowPlain(profiles, action);
 
         var rows = Math.Min(RowCount(profiles.Count, action), maxRows);
-        var frameHeight = rows + ChromeLines;
+        var frameHeight = rows + ChromeLines; // Grows if the editor needs more room.
 
         // Reserve the frame up front so the terminal scrolls once, then draw in
         // place from a stable origin.
@@ -268,6 +268,32 @@ internal static class Picker
                             action is PickerAction.Launch ? new PickerChoice(CreateNew: true) : Quit
                         );
 
+                    // Every setting tabard keeps for the profile. Refused rather than drawn in a
+                    // window too short to hold it, which would clip the fields off the bottom.
+                    case ConsoleKey.E:
+                        if (index >= profiles.Count)
+                            break;
+
+                        armed = -1;
+                        if (ProfileEditor.Height(profiles[index]) >= Term.WindowHeight())
+                        {
+                            status = "the window is too short to edit in";
+                            break;
+                        }
+
+                        if (
+                            ProfileEditor.Run(profiles[index], ref top, ref frameHeight, notes)
+                            is not { } edited
+                        )
+                        {
+                            return Leave(Quit);
+                        }
+
+                        profiles[index] = edited;
+                        sandboxed = Sandboxing.Names(); // A rename moves the setting with it.
+                        break;
+
+                    // Still works, though the legend now offers 'e', which renames too.
                     case ConsoleKey.R:
                         if (index >= profiles.Count)
                             break;
@@ -421,9 +447,9 @@ internal static class Picker
         // what explains the mark beside the names. That costs the room 'up/down move' had - the one
         // entry nobody needs telling.
         if (action is PickerAction.Launch)
-            return $"  enter/1-9 launch   {SandboxKey(sandboxed)}   o reorder   r rename   x x delete   q quit";
+            return $"  enter/1-9 launch   {SandboxKey(sandboxed)}   o reorder   e edit   x x delete   q quit";
 
-        return "  up/down move   enter/1-9 switch   o reorder   r rename   x x delete   q quit";
+        return "  up/down move   enter/1-9 switch   o reorder   e edit   x x delete   q quit";
     }
 
     internal static string SandboxKey(bool sandboxed) =>
@@ -459,7 +485,7 @@ internal static class Picker
 
     /// <summary>Parks the terminal cursor at the end of the name being typed, so typing looks like
     /// typing rather than characters appearing beside a hidden cursor.</summary>
-    private static void Caret(int row, int column)
+    internal static void Caret(int row, int column)
     {
         try
         {
@@ -572,6 +598,13 @@ internal static class Picker
         );
         lines.Add(new(status is null ? "" : "  " + status, ConsoleColor.Yellow));
 
+        Paint(lines, top, frameHeight);
+    }
+
+    /// <summary>Draws <paramref name="lines"/> over the reserved frame, blanking whatever is left
+    /// of it. Shared with <see cref="ProfileEditor"/>, which draws in the same frame.</summary>
+    internal static void Paint(List<Line> lines, int top, int frameHeight)
+    {
         // Always paint the full reserved frame so deleted rows are cleared.
         while (lines.Count < frameHeight)
             lines.Add(new("", null));
@@ -616,9 +649,9 @@ internal static class Picker
 
     /// <summary>One line of the frame: its text, its colour, and at most one run in another colour.
     /// </summary>
-    private sealed record Line(string Text, ConsoleColor? Color, Accent? Accent = null);
+    internal sealed record Line(string Text, ConsoleColor? Color, Accent? Accent = null);
 
-    private sealed record Accent(int Start, int Length, ConsoleColor Color);
+    internal sealed record Accent(int Start, int Length, ConsoleColor Color);
 
     private static void Finish(int top, int frameHeight)
     {

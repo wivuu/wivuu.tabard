@@ -213,7 +213,7 @@ internal static class Cli
             case []:
             {
                 var sandboxed = Sandboxing.Names();
-                var images = Sandboxing.Images();
+                var images = Sbx.Images();
                 var profiles = ProfileStore.List();
 
                 if (profiles.Count == 0)
@@ -238,7 +238,7 @@ internal static class Cli
             {
                 var profile = Require(name);
                 Console.WriteLine(
-                    Sandboxing.ImageOf(profile.Name) is { } image
+                    Sbx.ImageOf(profile.Name) is { } image
                         ? $"'{profile.Name}' makes its sandboxes from {image}."
                         : $"'{profile.Name}' makes its sandboxes from sbx's default image."
                 );
@@ -251,7 +251,7 @@ internal static class Cli
                 var chosen = image is "--default" or "default" ? null : image;
 
                 using (ProfileStore.AcquireLock())
-                    Sandboxing.SetImage(profile.Name, chosen);
+                    Sbx.SetImage(profile.Name, chosen);
 
                 Console.Error.WriteLine(
                     chosen is null
@@ -286,7 +286,7 @@ internal static class Cli
 
                 Console.Error.WriteLine($"tabard: {Sandboxing.Status(profile.Name, on)}");
 
-                if (on && Launcher.Which(Sandboxing.Executable) is null)
+                if (on && Launcher.Which(Sbx.Executable) is null)
                     Console.Error.WriteLine(
                         "tabard: 'sbx' is not on PATH yet - install it with 'brew install docker/tap/sbx' "
                             + "before launching it."
@@ -301,7 +301,7 @@ internal static class Cli
     }
 
     private const string SandboxHelpText = """
-        tabard sandbox - launch a profile's Claude Code inside a Docker sandbox
+        tabard sandbox - launch a profile's agent inside a Docker sandbox
 
         Usage:
           tabard sandbox                 Show which profiles launch in a sandbox
@@ -315,10 +315,8 @@ internal static class Cli
 
         In the picker, 's' turns it on and off for the highlighted profile.
 
-        Only Claude Code profiles can be sandboxed for now; a sandboxed pi profile refuses to launch.
-
         A sandboxed launch runs 'sbx run claude' (Docker Sandboxes, brew install docker/tap/sbx).
-        Claude Code runs in a microVM that sees only the current folder - the whole git repository,
+        The agent runs in a microVM that sees only the current folder - the whole git repository,
         when the folder is inside one - and the profile's own directory, each at the same path as
         here. One sandbox is made per profile and folder (or repository), and launching again goes
         back into it, with whatever was installed in it. Your git identity, as a commit here
@@ -332,6 +330,14 @@ internal static class Cli
         skills and loose scripts are read-only, so nothing it does can plant code that runs on this
         machine the next time you launch the profile directly. Log in with /login the first time:
         a macOS Keychain login cannot be read from inside the sandbox.
+
+        pi has no sbx agent of its own, so a sandboxed pi profile runs under sbx's 'shell' agent,
+        in sandboxes made from a template holding Node.js and the pi version installed here. The
+        template is built the first time - a few minutes, once per pi version - and named
+        tabard-pi:<version>; 'sbx template rm' removes old ones. Its settings.json, models.json,
+        AGENTS.md, extensions, skills, prompts and themes are read-only. If the profile waits for a
+        port on this machine (the editor's 'Wait for port'), 127.0.0.1:<port> inside the sandbox
+        reaches it, so a local model server works unchanged; nothing else of the host does.
 
         Which profiles are sandboxed is kept in ~/.tabard/sandboxed, and their images in
         ~/.tabard/images, outside every profile, so a sandbox cannot change either.
@@ -1036,6 +1042,9 @@ internal static class Cli
               1-9              launch that profile
               enter            launch the highlighted profile, or create one on '+ new profile'
               o                reorder (up/down move it, o or enter done)
+              e                edit the highlighted profile: name, sandbox, and a command to
+                               run alongside it (started with the agent, stopped when it exits)
+                               and a port to wait for before the agent launches
               r                rename the highlighted profile (enter saves, esc cancels)
               s                launch the highlighted profile in a Docker sandbox, or not
               x then x         delete the highlighted profile

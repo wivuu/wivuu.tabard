@@ -89,8 +89,11 @@ straight into the profile you last used there:
   3     local             pi      ollama  -  qwen3-coder
       + new profile       name it, then log in or connect OpenRouter
 
-  enter/1-9 launch   s ■ sandbox   o reorder   r rename   x x delete   q quit
+  enter/1-9 launch   s ■ sandbox   o reorder   e edit   x x delete   q quit
 ```
+
+**`e` edits the highlighted profile**: its name, whether it is sandboxed and from which image, and
+a [command to run alongside it](#running-something-alongside) and a port to wait for. Each change is saved as you make it.
 
 ## Tab completion
 
@@ -339,12 +342,41 @@ every profile, so an agent cannot change what tabard launches next time.
 
 `~/.claude` only ever points at Claude Code profiles: launching or switching to a pi profile leaves
 it where it was, and `~/.pi/agent` is never touched. `tabard switch` to a pi profile instead sets
-`PI_CODING_AGENT_DIR` for the shell it runs in; see [Behaviour](#behaviour). Sandboxing a pi profile is not supported yet — a pi profile marked sandboxed refuses
-to launch rather than run outside one.
+`PI_CODING_AGENT_DIR` for the shell it runs in; see [Behaviour](#behaviour). A pi profile can be [sandboxed](#sandboxed-profiles) too.
+
+## Running something alongside
+
+A profile can start a command when its agent launches and stop it when the agent exits — a local
+model server for a pi profile that talks to one, say. Set it with `e` in the picker, under
+**Run alongside**:
+
+```
+  Edit 'local' - pi
+
+    Name            local
+  > Run alongside   strata serve
+    Wait for port   8080
+```
+
+The command runs through `/bin/sh` (`cmd.exe` on Windows) in the folder you launch from, with the
+profile's `CLAUDE_CONFIG_DIR` or `PI_CODING_AGENT_DIR` and `TABARD_PROFILE` set. Its output goes to
+`~/.tabard/logs/<name>.log`, because the terminal belongs to the agent. When the agent exits — or the
+terminal closes — tabard sends it and everything it started SIGTERM, then SIGKILL after five
+seconds. It ignores ^C, which is meant for the agent.
+
+**Wait for port** holds the agent back until something accepts connections there — `8080` for
+localhost, or `host:8080` — so a server that takes a while to load a model is ready before the agent
+asks it anything. tabard says it is waiting, and ^C gives up without launching. If the command
+alongside exits before the port answers, tabard doesn't launch the agent and shows the end of the
+log instead. The port can be set without a command, to wait on a server started some other way.
+
+It only runs for launches through tabard: a bare `claude` or `pi` after `tabard switch` starts
+nothing. The commands are kept in `~/.tabard/companions.json`, outside every profile, so a sandboxed
+session cannot plant one that would run on the host.
 
 ## Sandboxed profiles
 
-A Claude Code profile can launch inside a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) —
+A Claude Code or pi profile can launch inside a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) —
 a microVM that sees the current folder (the whole git repository, when the folder is inside one) and
 nothing else of your machine. It needs `sbx` (`brew install docker/tap/sbx`,
 then `sbx login`) and macOS or Linux.
@@ -425,6 +457,35 @@ Things to know:
   `.claude/settings.json` or `.mcp.json` — and the profile's `.claude.json`, which can declare MCP
   servers. Those take effect in any later session that opens them, sandboxed or not. Keeping a
   sandboxed profile sandboxed is the way to keep that inside the box.
+
+### pi in a sandbox
+
+sbx has no pi agent, so a sandboxed pi profile runs under sbx's `shell` agent with the profile's
+directory as `PI_CODING_AGENT_DIR`. Its sandboxes come from a template tabard builds the first time:
+sbx's shell image plus Node.js 22 and the pi version installed on your machine, saved as
+`tabard-pi:<version>`. That first launch takes a few minutes and logs to
+`~/.tabard/logs/sbx-pi-template.log`; later ones start straight from the template. Updating pi on
+your machine means a new template, and new sandboxes, the next time; `sbx template ls` and
+`sbx template rm` tidy up old ones.
+
+Inside, the profile's `settings.json`, `models.json`, `keybindings.json`, `AGENTS.md`,
+`SYSTEM.md`, `APPEND_SYSTEM.md`, `extensions/`, `skills/`, `prompts/`, `themes/`, `packages/` and
+`bin/` are read-only, for the same reason as Claude Code's: extensions are code pi runs, and the
+rest steer it. The extension, skill, prompt and theme folders are created empty first so a sandbox
+cannot create them. `auth.json` and `sessions/` stay writable.
+
+**Local model servers.** Inside a sandbox `127.0.0.1` is the sandbox, not your machine. If the
+profile has a [port to wait for](#running-something-alongside) on this machine, tabard forwards
+`127.0.0.1:<port>` inside the sandbox to the same port here, so a `models.json` pointing at
+`http://127.0.0.1:8080/v1` works in both. Nothing else of your machine is reachable. The forward
+goes through sbx's `host.docker.internal`, which sbx's network policy allows by default; under a
+stricter policy, allow it with `sbx policy allow network localhost:<port>`.
+
+### Other kinds of sandbox
+
+Docker Sandboxes is the only kind for now, but tabard keeps it behind one interface (`ISandbox`):
+which profiles are sandboxed and what a launch mounts are tabard's, and how the agent gets isolated
+is the sandbox's. Another kind can be added beside it without touching the rest.
 
 ## Other ways to install
 

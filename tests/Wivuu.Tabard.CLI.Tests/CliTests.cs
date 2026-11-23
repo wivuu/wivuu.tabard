@@ -387,7 +387,7 @@ public class CliTests
         await Assert.That(run).Contains($"{Path.Combine(dir, "settings.json")}:ro");
         await Assert
             .That(run.TakeLast(4))
-            .IsEquivalentTo(new[] { "--", "--settings", Sandboxing.KeepPrompts, "--continue" });
+            .IsEquivalentTo(new[] { "--", "--settings", Sbx.KeepPrompts, "--continue" });
     }
 
     [Test]
@@ -396,10 +396,10 @@ public class CliTests
         ProfileStore.Create("work");
 
         await Assert.That(global::Cli.Run(["sandbox", "image", "work", "my/image:1"])).IsEqualTo(0);
-        await Assert.That(Sandboxing.ImageOf("work")).IsEqualTo("my/image:1");
+        await Assert.That(Sbx.ImageOf("work")).IsEqualTo("my/image:1");
 
         await Assert.That(global::Cli.Run(["sandbox", "image", "work", "--default"])).IsEqualTo(0);
-        await Assert.That(Sandboxing.ImageOf("work")).IsNull();
+        await Assert.That(Sbx.ImageOf("work")).IsNull();
     }
 
     [Test]
@@ -433,13 +433,13 @@ public class CliTests
         global::Cli.Run(["sandbox", "on", "work"]);
         // The tests run inside this repository, so the sandbox is named for its root.
         var root = Sandboxing.ResolveWorkspace(Directory.GetCurrentDirectory(), []).Root;
-        sbx.Exists(Sandboxing.SandboxName("work", root));
+        sbx.Exists(Sbx.SandboxName("work", root));
 
         await Assert.That(global::Cli.Run(["use", "work"])).IsEqualTo(0);
 
         await Assert
             .That(sbx.Runs[0].Take(3))
-            .IsEquivalentTo(new[] { "run", "--name", Sandboxing.SandboxName("work", root) });
+            .IsEquivalentTo(new[] { "run", "--name", Sbx.SandboxName("work", root) });
     }
 
     [Test]
@@ -464,7 +464,7 @@ public class CliTests
         await Assert.That(sbx.Runs.Count).IsEqualTo(1);
         await Assert
             .That(sbx.Runs[0].TakeLast(5))
-            .IsEquivalentTo(new[] { "--", "--settings", Sandboxing.KeepPrompts, "-p", "hi" });
+            .IsEquivalentTo(new[] { "--", "--settings", Sbx.KeepPrompts, "-p", "hi" });
 
         // One launch each, and neither changed what the profiles are set to.
         await Assert.That(Sandboxing.IsOn("work")).IsTrue();

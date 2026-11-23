@@ -11,6 +11,7 @@ internal sealed class FakeSbx : IDisposable
     private readonly string? _originalPath = Environment.GetEnvironmentVariable("PATH");
     private readonly string _log;
     private readonly string _existing;
+    private readonly string _templates;
 
     public FakeSbx()
     {
@@ -18,6 +19,8 @@ internal sealed class FakeSbx : IDisposable
         _log = Path.Combine(dir, "runs");
         _existing = Path.Combine(dir, "existing");
         File.WriteAllText(_existing, "");
+        _templates = Path.Combine(dir, "templates");
+        File.WriteAllText(_templates, "[]");
 
         var script = Path.Combine(dir, "sbx");
         File.WriteAllText(
@@ -25,6 +28,7 @@ internal sealed class FakeSbx : IDisposable
             $$"""
             #!/bin/sh
             if [ "$1" = ls ]; then cat '{{_existing}}'; exit 0; fi
+            if [ "$1" = template ] && [ "$2" = ls ]; then cat '{{_templates}}'; exit 0; fi
             for arg in "$@"; do printf '%s\n' "$arg"; done >> '{{_log}}'
             printf '%s\n' '--end--' >> '{{_log}}'
             """
@@ -44,7 +48,16 @@ internal sealed class FakeSbx : IDisposable
     /// <summary>Makes 'sbx ls -q' list a sandbox, as if an earlier launch had created it.</summary>
     public void Exists(string sandbox) => File.AppendAllText(_existing, sandbox + "\n");
 
-    /// <summary>The arguments of each call other than 'ls', oldest first.</summary>
+    /// <summary>Makes 'sbx template ls' list a template, as if an earlier launch had built it.
+    /// </summary>
+    public void Template(string repository, string tag) =>
+        File.WriteAllText(
+            _templates,
+            $$"""[{"repository": "{{repository}}", "tag": "{{tag}}", "flavor": "shell"}]"""
+        );
+
+    /// <summary>The arguments of each call other than 'ls' and 'template ls', oldest first.
+    /// </summary>
     public IReadOnlyList<IReadOnlyList<string>> Runs
     {
         get
