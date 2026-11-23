@@ -28,7 +28,7 @@ internal static class Paths
     /// <see cref="DirectoryMemory"/>.</summary>
     public static string DirectoriesFile { get; } = Path.Combine(TabardRoot, "directories.json");
 
-    /// <summary>The profiles that launch inside a Docker sandbox, one name per line. Outside every
+    /// <summary>The profiles that launch inside a sandbox, one name per line. Outside every
     /// profile on purpose: a sandbox can write to its own profile, and must not be able to turn
     /// itself off. See <see cref="Sandboxing"/>.</summary>
     public static string SandboxedFile { get; } = Path.Combine(TabardRoot, "sandboxed");
@@ -45,6 +45,11 @@ internal static class Paths
     /// <summary>The command each profile runs alongside its agent. Outside every profile for the same
     /// reason as <see cref="SandboxedFile"/>. See <see cref="Companions"/>.</summary>
     public static string CompanionsFile { get; } = Path.Combine(TabardRoot, "companions.json");
+
+    /// <summary>Each sandboxed profile's kind of sandbox and extra allowed sites, for profiles that
+    /// set either. Outside every profile for the same reason as <see cref="SandboxedFile"/>. See
+    /// <see cref="SandboxOptions"/>.</summary>
+    public static string SandboxOptionsFile { get; } = Path.Combine(TabardRoot, "sandbox.json");
 
     /// <summary>Where 'tabard completion install' leaves the script it points a shell at.</summary>
     public static string CompletionsRoot { get; } = Path.Combine(TabardRoot, "completions");

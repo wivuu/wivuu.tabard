@@ -139,41 +139,73 @@ internal static class Companions
         }
 
         Console.CancelKeyPress += OnCancel;
+        WaitDisplay? display = null;
         try
         {
             if (Answers(target, cancel.Token))
                 return null;
 
-            Console.Error.WriteLine(
-                $"tabard: waiting for {address} to answer before launching - ^C to give up."
-            );
+            // Redrawn in place on a terminal; plain lines anywhere else - a log, a pipe, CI.
+            display = WaitDisplay.Create(address, running);
+            if (display is null)
+                Console.Error.WriteLine(
+                    $"tabard: waiting for {address} to answer before launching - ^C to give up."
+                );
 
             var started = Stopwatch.StartNew();
             var nextNote = TimeSpan.FromSeconds(30);
+            var nextProbe = TimeSpan.Zero;
+            Task<bool>? probe = null;
 
             while (!cancel.IsCancellationRequested)
             {
                 if (running is { HasExited: true })
                 {
-                    Console.Error.WriteLine(
-                        $"tabard: '{running.Command}' exited before {address} answered, so "
-                            + $"'{profile.Name}' was not launched. The end of {Paths.Pretty(running.Log)}:"
-                    );
+                    var why =
+                        $"'{running.Command}' exited before {address} answered, so "
+                        + $"'{profile.Name}' was not launched.";
+
+                    if (display is null)
+                        Console.Error.WriteLine(
+                            $"tabard: {why} The end of {Paths.Pretty(running.Log)}:"
+                        );
+                    else
+                        display.Fail($"{why} The end of {Paths.Pretty(running.Log)}:");
+
                     foreach (var line in running.Tail(15))
                         Console.Error.WriteLine($"  {line}");
 
                     return 1;
                 }
 
-                if (Answers(target, cancel.Token))
+                // A connection attempt can take up to a second, so it runs beside the drawing,
+                // which would otherwise freeze for each one.
+                if (probe is null && started.Elapsed >= nextProbe)
+                    probe = Task.Run(() => Answers(target, cancel.Token));
+
+                if (probe is { IsCompleted: true })
                 {
-                    Console.Error.WriteLine(
-                        $"tabard: {address} answered after {started.Elapsed.TotalSeconds:0}s."
-                    );
-                    return null;
+                    if (probe.Result)
+                    {
+                        if (display is null)
+                            Console.Error.WriteLine(
+                                $"tabard: {address} answered after {started.Elapsed.TotalSeconds:0}s."
+                            );
+                        else
+                            display.Succeed(started.Elapsed);
+
+                        return null;
+                    }
+
+                    probe = null;
+                    nextProbe = started.Elapsed + TimeSpan.FromMilliseconds(250);
                 }
 
-                if (started.Elapsed >= nextNote)
+                if (display is not null)
+                {
+                    display.Draw(started.Elapsed);
+                }
+                else if (started.Elapsed >= nextNote)
                 {
                     Console.Error.WriteLine(
                         $"tabard: still waiting for {address} ({started.Elapsed.TotalSeconds:0}s)."
@@ -181,14 +213,21 @@ internal static class Companions
                     nextNote += TimeSpan.FromSeconds(30);
                 }
 
-                cancel.Token.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(250));
+                cancel.Token.WaitHandle.WaitOne(
+                    TimeSpan.FromMilliseconds(display is null ? 250 : 100)
+                );
             }
 
-            Console.Error.WriteLine($"tabard: gave up waiting for {address}.");
+            if (display is null)
+                Console.Error.WriteLine($"tabard: gave up waiting for {address}.");
+            else
+                display.Fail($"gave up waiting for {address}.");
+
             return 130;
         }
         finally
         {
+            display?.Dispose();
             Console.CancelKeyPress -= OnCancel;
         }
     }
@@ -344,6 +383,61 @@ internal static class Companions
 
         public string Command => command;
         public string Log => log;
+
+        /// <summary>
+        /// The latest thing this run has said, while it is still running: the log's last line since
+        /// tabard started it, with a progress bar's carriage returns and colour codes taken out.
+        /// Null if it has said nothing yet or the log cannot be read.
+        /// </summary>
+        public string? LastLine()
+        {
+            try
+            {
+                using var stream = new FileStream(
+                    log,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite
+                );
+
+                // Only the end: a server that logs a lot must not make every frame slower.
+                stream.Seek(Math.Max(0, stream.Length - 8192), SeekOrigin.Begin);
+                using var reader = new StreamReader(stream);
+                var lines = reader.ReadToEnd().Split('\n');
+
+                for (var i = lines.Length - 1; i >= 0; i--)
+                {
+                    if (lines[i].StartsWith("--- ", StringComparison.Ordinal))
+                        return null;
+
+                    // A progress bar redraws with \r; what it last drew is after the last one.
+                    var line = Plain(lines[i].TrimEnd('\r').Split('\r')[^1]).Trim();
+                    if (line.Length > 0)
+                        return line;
+                }
+            }
+            catch
+            {
+                // Not there yet, or gone: nothing to show this frame.
+            }
+
+            return null;
+        }
+
+        /// <summary>Text without escape sequences or other control characters, safe to draw.
+        /// </summary>
+        internal static string Plain(string text)
+        {
+            var plain = System.Text.RegularExpressions.Regex.Replace(
+                text,
+                @"\x1b(\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)?|.)",
+                ""
+            );
+            return new string([.. plain.Where(c => !char.IsControl(c) || c == '\t')]).Replace(
+                '\t',
+                ' '
+            );
+        }
 
         /// <summary>The last lines this run wrote to the log, once its output has all arrived.
         /// </summary>

@@ -499,7 +499,9 @@ internal static class Sandboxing
     /// <summary>Shared by the picker's status line and 'tabard sandbox', so the key and the command
     /// say the same thing.</summary>
     public static string Status(string profile, bool on) =>
-        on ? $"'{profile}' will launch in a Docker sandbox." : $"'{profile}' will launch directly.";
+        on
+            ? $"'{profile}' will launch in {Sandboxes.For(profile).Description}."
+            : $"'{profile}' will launch directly.";
 
     /// <summary>
     /// The mark beside a sandboxed profile, and the pair the picker's legend shows for on and off.
@@ -507,24 +509,9 @@ internal static class Sandboxing
     /// terminal draws two columns wide would knock the row out of line - and plain ASCII when the
     /// console cannot encode them.
     /// </summary>
-    public static string Mark(bool on) => on ? (Unicode ? "■" : "*") : " ";
+    public static string Mark(bool on) => on ? (Term.Unicode ? "■" : "*") : " ";
 
-    public static string Legend(bool on) => Unicode ? (on ? "■" : "□") : (on ? "*" : "-");
-
-    private static bool Unicode
-    {
-        get
-        {
-            try
-            {
-                return Console.OutputEncoding.CodePage is 65001 or 1200 or 1201 or 12000 or 12001;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-    }
+    public static string Legend(bool on) => Term.Unicode ? (on ? "■" : "□") : (on ? "*" : "-");
 }
 
 /// <summary>What a sandbox mounts: <see cref="Root"/> read-write, as are <see cref="Writable"/>

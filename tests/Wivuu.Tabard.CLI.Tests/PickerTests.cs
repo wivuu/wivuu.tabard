@@ -118,35 +118,6 @@ public class PickerTests
         await Assert.That(ProfileEditor.Help(typing, onToggle).Length).IsLessThanOrEqualTo(80);
     }
 
-    /// <summary>A pi profile's sandboxes come from tabard's own template, so it has no image to
-    /// choose - but it can be sandboxed.</summary>
-    [Test]
-    public async Task Editor_offers_the_image_only_to_claude()
-    {
-        var claude = new Profile
-        {
-            Name = "work",
-            Dir = "/p/work",
-            Harness = Harness.Claude,
-        };
-        var pi = new Profile
-        {
-            Name = "local",
-            Dir = "/p/local",
-            Harness = Harness.Pi,
-        };
-
-        await Assert.That(ProfileEditor.Fields(claude)).Contains(ProfileEditor.Field.Image);
-        await Assert
-            .That(ProfileEditor.Fields(pi))
-            .IsEquivalentTo([
-                ProfileEditor.Field.Name,
-                ProfileEditor.Field.Sandbox,
-                ProfileEditor.Field.Companion,
-                ProfileEditor.Field.WaitFor,
-            ]);
-    }
-
     private static string Help(bool switching) =>
         Picker.Help(
             switching ? PickerAction.Switch : PickerAction.Launch,

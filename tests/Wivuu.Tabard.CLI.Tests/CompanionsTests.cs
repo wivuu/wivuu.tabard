@@ -249,4 +249,46 @@ public class CompanionsTests
             return false;
         }
     }
+
+    [Test]
+    [Arguments("strata serve --port 8080", "strata")]
+    [Arguments("/opt/bin/llama-server -m x", "llama-server")]
+    [Arguments("\"my server\" --x", "\"my")]
+    [Arguments("  ", null)]
+    public async Task The_wait_names_the_program_alongside(string command, string? name)
+    {
+        await Assert.That(WaitDisplay.Name(command)).IsEqualTo(name?.Trim('"'));
+    }
+
+    [Test]
+    public async Task Log_lines_are_drawn_without_escapes_or_control_characters()
+    {
+        await Assert
+            .That(Companions.Running.Plain("\x1b[32mready\x1b[0m\tnow\x07"))
+            .IsEqualTo("ready now");
+    }
+
+    /// <summary>The wait shows what the command alongside last said: the latest line since it was
+    /// started, as a progress bar last drew it.</summary>
+    [Test]
+    public async Task The_latest_log_line_is_what_the_wait_shows()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var profile = ProfileStore.Create("local");
+        using (ProfileStore.AcquireLock())
+            Companions.Set("local", "printf 'loading\\n10%%\\r50%%\\r90%%\\n'; sleep 30");
+
+        using var running = Companions.Start(profile)!;
+
+        string? line = null;
+        for (var i = 0; i < 50 && line != "90%"; i++)
+        {
+            Thread.Sleep(100);
+            line = running.LastLine();
+        }
+
+        await Assert.That(line).IsEqualTo("90%");
+    }
 }

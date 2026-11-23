@@ -25,6 +25,23 @@ internal static class Term
         return text[..end];
     }
 
+    /// <summary>Whether the console can encode characters beyond ASCII - marks, spinners and the
+    /// like - or has to make do with ASCII stand-ins.</summary>
+    public static bool Unicode
+    {
+        get
+        {
+            try
+            {
+                return Console.OutputEncoding.CodePage is 65001 or 1200 or 1201 or 12000 or 12001;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
     public static int WindowHeight()
     {
         try

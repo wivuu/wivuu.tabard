@@ -64,12 +64,31 @@ public class SandboxingTests
     {
         var work = ProfileStore.Create("work");
         Sandboxing.Set("work", true);
+        SandboxOptions.SetKind("work", "sbx");
 
         var result = ProfileStore.Rename(work, "job");
 
         await Assert.That(Sandboxing.IsOn("job")).IsTrue();
         await Assert.That(Sandboxing.IsOn("work")).IsFalse();
         await Assert.That(result.Warnings).Contains(w => w.Contains("sbx rm"));
+        await Assert.That(Sandboxes.For("job")).IsTypeOf<SbxSandbox>();
+    }
+
+    /// <summary>srt keeps nothing between launches, so there is nothing to warn about.</summary>
+    [Test]
+    public async Task Renaming_or_deleting_an_srt_profile_says_nothing_about_sandboxes()
+    {
+        using var path = new OnlyOnPath();
+        var work = ProfileStore.Create("work");
+        Sandboxing.Set("work", true);
+        SandboxOptions.SetAllowed("work", "github.com");
+
+        var result = ProfileStore.Rename(work, "job");
+        await Assert.That(result.Warnings).IsEmpty();
+        await Assert.That(SandboxOptions.AllowedOf("job")).IsEquivalentTo(["github.com"]);
+
+        await Assert.That(ProfileStore.Delete(result.Profile)).IsEmpty();
+        await Assert.That(SandboxOptions.AllowedOf("job")).IsEmpty();
     }
 
     /// <summary>A profile made later under the same name must not inherit the setting.</summary>
@@ -78,11 +97,13 @@ public class SandboxingTests
     {
         var work = ProfileStore.Create("work");
         Sandboxing.Set("work", true);
+        SandboxOptions.SetKind("work", "sbx");
 
         var warnings = ProfileStore.Delete(work);
 
         await Assert.That(Sandboxing.IsOn("work")).IsFalse();
         await Assert.That(warnings).Contains(w => w.Contains("sbx ls"));
+        await Assert.That(SandboxOptions.KindOf("work")).IsNull();
     }
 
     [Test]

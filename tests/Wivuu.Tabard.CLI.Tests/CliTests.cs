@@ -372,6 +372,7 @@ public class CliTests
         using var sbx = new FakeSbx();
         var work = ProfileStore.Create("work");
         global::Cli.Run(["sandbox", "on", "work"]);
+        global::Cli.Run(["sandbox", "kind", "work", "sbx"]);
 
         await Assert.That(global::Cli.Run(["use", "work", "--", "--continue"])).IsEqualTo(0);
 
@@ -411,6 +412,7 @@ public class CliTests
         using var sbx = new FakeSbx();
         ProfileStore.Create("work");
         global::Cli.Run(["sandbox", "on", "work"]);
+        global::Cli.Run(["sandbox", "kind", "work", "sbx"]);
         global::Cli.Run(["sandbox", "image", "work", "my/image:1"]);
 
         await Assert.That(global::Cli.Run(["use", "work"])).IsEqualTo(0);
@@ -431,6 +433,7 @@ public class CliTests
         using var sbx = new FakeSbx();
         ProfileStore.Create("work");
         global::Cli.Run(["sandbox", "on", "work"]);
+        global::Cli.Run(["sandbox", "kind", "work", "sbx"]);
         // The tests run inside this repository, so the sandbox is named for its root.
         var root = Sandboxing.ResolveWorkspace(Directory.GetCurrentDirectory(), []).Root;
         sbx.Exists(Sbx.SandboxName("work", root));
@@ -453,6 +456,8 @@ public class CliTests
         ProfileStore.Create("work");
         ProfileStore.Create("personal");
         global::Cli.Run(["sandbox", "on", "work"]);
+        global::Cli.Run(["sandbox", "kind", "work", "sbx"]);
+        global::Cli.Run(["sandbox", "kind", "personal", "sbx"]);
 
         await Assert.That(global::Cli.Run(["use", "work", "--no-sandbox"])).IsEqualTo(0);
         await Assert

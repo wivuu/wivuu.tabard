@@ -14,6 +14,7 @@ internal static class ProfileEditor
         Name,
         Sandbox,
         Image,
+        Allow,
         Companion,
         WaitFor,
     }
@@ -23,15 +24,33 @@ internal static class ProfileEditor
     private const int Indent = 4; // "  > "
     private const int LabelWidth = 16;
 
-    /// <summary>What can be set on this profile. A pi profile's sandboxes are made from tabard's
-    /// own pi template, so it has no image to choose.</summary>
-    internal static IReadOnlyList<Field> Fields(Profile profile) =>
-        profile.Harness is Harness.Claude
-            ? [Field.Name, Field.Sandbox, Field.Image, Field.Companion, Field.WaitFor]
-            : [Field.Name, Field.Sandbox, Field.Companion, Field.WaitFor];
+    /// <summary>
+    /// What can be set on this profile, which depends on its kind of sandbox: an srt sandbox has
+    /// sites to allow, a Docker one an image - though not for pi, whose sandboxes are made from
+    /// tabard's own pi template.
+    /// </summary>
+    internal static IReadOnlyList<Field> Fields(Profile profile)
+    {
+        List<Field> fields = [Field.Name, Field.Sandbox];
 
-    /// <summary>The frame height the editor needs for this profile.</summary>
-    internal static int Height(Profile profile) => Fields(profile).Count + ChromeLines;
+        switch (Sandboxes.For(profile))
+        {
+            case SrtSandbox:
+                fields.Add(Field.Allow);
+                break;
+
+            case SbxSandbox when profile.Harness is Harness.Claude:
+                fields.Add(Field.Image);
+                break;
+        }
+
+        fields.AddRange([Field.Companion, Field.WaitFor]);
+        return fields;
+    }
+
+    /// <summary>The frame height the editor needs for this profile, whichever kind of sandbox it is
+    /// switched to while open - so the frame never has to grow mid-edit.</summary>
+    internal static int Height(Profile profile) => 5 + ChromeLines;
 
     internal static string Label(Field field) =>
         field switch
@@ -39,6 +58,7 @@ internal static class ProfileEditor
             Field.Name => "Name",
             Field.Sandbox => "Sandbox",
             Field.Image => "Sandbox image",
+            Field.Allow => "Allowed sites",
             Field.Companion => "Run alongside",
             Field.WaitFor => "Wait for port",
             _ => field.ToString(),
@@ -48,8 +68,10 @@ internal static class ProfileEditor
         field switch
         {
             Field.Name => "Also its directory under ~/.tabard/profiles.",
-            Field.Sandbox => "Launch the agent inside a Docker sandbox (sbx).",
+            Field.Sandbox => "off, srt (this machine's own sandbox) or sbx (a Docker sandbox).",
             Field.Image => "What new sandboxes are made from. Blank for sbx's default.",
+            Field.Allow =>
+                "Beyond the agent's own and common dev sites: example.com, localhost:3000.",
             Field.Companion =>
                 $"Runs while the agent does. Output: {Paths.Pretty(Companions.LogFile(profile.Name))}",
             Field.WaitFor => "Launch the agent once this answers: 8080, or host:8080.",
@@ -58,15 +80,16 @@ internal static class ProfileEditor
 
     internal static string Help(bool typing, bool onToggle) =>
         typing ? "  type a value   enter save   esc cancel   ctrl+u clear"
-        : onToggle ? "  up/down move   enter/space toggle   esc back"
+        : onToggle ? "  up/down move   enter/space change   esc back"
         : "  up/down move   enter change   esc back";
 
     private static string Value(Field field, Profile profile) =>
         field switch
         {
             Field.Name => profile.Name,
-            Field.Sandbox => Sandboxing.IsOn(profile.Name) ? "on" : "off",
+            Field.Sandbox => Sandboxing.IsOn(profile.Name) ? Sandboxes.For(profile).Name : "off",
             Field.Image => Sbx.ImageOf(profile.Name) ?? "",
+            Field.Allow => string.Join(", ", SandboxOptions.AllowedOf(profile.Name)),
             Field.Companion => Companions.Of(profile.Name) ?? "",
             Field.WaitFor => Companions.WaitForOf(profile.Name) ?? "",
             _ => "",
@@ -76,6 +99,7 @@ internal static class ProfileEditor
         field switch
         {
             Field.Image => "(sbx default)",
+            Field.Allow => "(only what the agent needs)",
             Field.Companion => "(nothing)",
             Field.WaitFor => "(launch straight away)",
             _ => "",
@@ -96,13 +120,15 @@ internal static class ProfileEditor
     {
         Grow(ref top, ref frameHeight, Height(profile));
 
-        var fields = Fields(profile);
         var index = 0;
         StringBuilder? draft = null;
         string? status = null;
 
         while (true)
         {
+            // Again each time round: switching the kind of sandbox changes what there is to set.
+            var fields = Fields(profile);
+            index = Math.Min(index, fields.Count - 1);
             var field = fields[index];
             var width = Term.WindowWidth();
             var lines = new List<Picker.Line>(frameHeight)
@@ -224,11 +250,24 @@ internal static class ProfileEditor
                 or ConsoleKey.Spacebar when field is Field.Sandbox:
                     try
                     {
-                        var on = !Sandboxing.IsOn(profile.Name);
+                        var (on, kind, refusal) = NextSandbox(profile);
+                        if (refusal is not null)
+                        {
+                            status = refusal;
+                            break;
+                        }
+
                         using (ProfileStore.AcquireLock())
+                        {
+                            if (kind is not null)
+                                SandboxOptions.SetKind(profile.Name, kind.Name);
+
                             Sandboxing.Set(profile.Name, on);
+                        }
 
                         status = Sandboxing.Status(profile.Name, on);
+                        if (on && kind?.Unsupported(profile) is { } unsupported)
+                            status = unsupported;
                     }
                     catch (Exception ex)
                     {
@@ -289,6 +328,17 @@ internal static class ProfileEditor
                         : $"'{profile.Name}' will make new sandboxes from {value}."
                 );
 
+            case Field.Allow:
+                using (ProfileStore.AcquireLock())
+                    SandboxOptions.SetAllowed(profile.Name, value);
+
+                return (
+                    profile,
+                    SandboxOptions.AllowedOf(profile.Name).Count == 0
+                        ? $"'{profile.Name}' will reach only what {Harnesses.DisplayName(profile.Harness)} needs."
+                        : $"'{profile.Name}' may also reach {string.Join(", ", SandboxOptions.AllowedOf(profile.Name))}."
+                );
+
             case Field.Companion:
                 using (ProfileStore.AcquireLock())
                     Companions.Set(profile.Name, value);
@@ -314,6 +364,30 @@ internal static class ProfileEditor
             default:
                 return (profile, null);
         }
+    }
+
+    /// <summary>
+    /// The Sandbox field's next setting: off, then each kind of sandbox installed here in turn,
+    /// then off again. The kind is null when switching off, which leaves the kind as it was for the
+    /// 's' key. With nothing installed, the refusal says what to install instead.
+    /// </summary>
+    internal static (bool On, ISandbox? Kind, string? Refusal) NextSandbox(Profile profile)
+    {
+        var available = Sandboxes.All.Where(s => s.Available).ToList();
+
+        if (!Sandboxing.IsOn(profile.Name))
+        {
+            if (available.Count == 0)
+                return (false, null, Sandboxes.Refusal("") ?? "no sandbox is installed.");
+
+            var current = Sandboxes.For(profile);
+            return (true, available.Contains(current) ? current : available[0], null);
+        }
+
+        var next = available.IndexOf(Sandboxes.For(profile)) + 1;
+        return next > 0 && next < available.Count
+            ? (true, available[next], null)
+            : (false, null, null);
     }
 
     /// <summary>

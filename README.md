@@ -52,7 +52,7 @@ tabard use work              # launch a specific profile
 tabard switch work           # make a profile current, without launching
 tabard add personal          # create a profile (Claude Code or pi)
 tabard add local --pi        # a pi profile, without the question
-tabard sandbox on work       # launch it inside a Docker sandbox from now on
+tabard sandbox on work       # launch it inside a sandbox from now on
 tabard ls                    # list profiles — never changes anything
 ```
 
@@ -64,7 +64,7 @@ tabard ls                    # list profiles — never changes anything
 | `tabard switch [name]` | Make a profile current without launching: repoints `~/.claude`, or for pi sets it in this shell |
 | `tabard add <name>` | Create a profile: Claude Code (Anthropic or [OpenRouter](#openrouter-profiles)) or [pi](#pi-profiles) |
 | `tabard rm <name>` | Delete a profile |
-| `tabard sandbox on\|off <name>` | Launch a profile in a [Docker sandbox](#sandboxed-profiles), or not |
+| `tabard sandbox on\|off <name>` | Launch a profile in a [sandbox](#sandboxed-profiles) (srt or Docker), or not |
 | `tabard ls` | List profiles |
 | `tabard openrouter <cmd>` | Configure a Claude Code profile's [OpenRouter settings](#openrouter-profiles) |
 | `tabard completion install` | Install [tab completion](#tab-completion) for zsh, bash or PowerShell |
@@ -92,7 +92,8 @@ straight into the profile you last used there:
   enter/1-9 launch   s ■ sandbox   o reorder   e edit   x x delete   q quit
 ```
 
-**`e` edits the highlighted profile**: its name, whether it is sandboxed and from which image, and
+**`e` edits the highlighted profile**: its name, whether it is sandboxed and how (off, srt or sbx,
+with the sites an srt sandbox may reach or the image a Docker one is made from), and
 a [command to run alongside it](#running-something-alongside) and a port to wait for. Each change is saved as you make it.
 
 ## Tab completion
@@ -376,41 +377,41 @@ session cannot plant one that would run on the host.
 
 ## Sandboxed profiles
 
-A Claude Code or pi profile can launch inside a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) —
-a microVM that sees the current folder (the whole git repository, when the folder is inside one) and
-nothing else of your machine. It needs `sbx` (`brew install docker/tap/sbx`,
-then `sbx login`) and macOS or Linux.
+A Claude Code or pi profile can launch inside a sandbox that sees the current folder (the whole git
+repository, when the folder is inside one) and its own profile, and nothing it could use to reach
+the rest of your machine. There are two kinds, on macOS and Linux, and a profile uses whichever is
+installed — srt if both are — unless you pick one:
 
-In the picker, `s` turns it on or off for the highlighted profile. A `■` beside a name means it is
-on, and the `s` entry in the legend shows the highlighted profile's setting (`■` on, `□` off). From
-a script or a shell:
+- **srt**: Anthropic's [sandbox runtime](https://github.com/anthropics/sandbox-runtime)
+  (`npm install -g @anthropic-ai/sandbox-runtime`), which runs the agent installed here under the
+  operating system's own sandbox — Seatbelt on macOS, bubblewrap on Linux. It starts as fast as a
+  direct launch and keeps nothing between launches.
+- **sbx**: [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`brew install docker/tap/sbx`,
+  then `sbx login`), a microVM per profile and folder that keeps what you install in it.
+
+With neither installed, switching sandboxing on refuses and says what to install. In the picker,
+`s` turns sandboxing on or off for the highlighted profile, and the editor's (`e`) Sandbox field
+cycles through off and the kinds installed here. A `■` beside a name means it is on, and the `s` entry
+in the legend shows the highlighted profile's setting (`■` on, `□` off). From a script or a shell:
 
 ```sh
 tabard sandbox on work          # every launch of 'work' goes through a sandbox
 tabard sandbox off work         # back to launching directly
-tabard sandbox                  # which profiles are sandboxed
+tabard sandbox                  # which profiles are sandboxed, and how
 tabard use work --no-sandbox    # just this once, either way round
-tabard sandbox image work my/dotnet:1   # make work's sandboxes from another image
-tabard sandbox image work --default     # back to sbx's own
+tabard sandbox kind work sbx    # always a Docker sandbox, whatever else is installed
+tabard sandbox allow work example.com '*.corp.dev'   # sites an srt sandbox may also reach
+tabard sandbox image work my/dotnet:1   # make work's Docker sandboxes from another image
 ```
 
-A sandboxed launch runs `sbx run claude` with the profile's directory as `CLAUDE_CONFIG_DIR`, the
-same as a direct launch, so login, history and settings are shared between the two. The current
-folder and the profile directory are mounted at the same paths they have on the host, which keeps
-the per-project entries in `.claude.json` lining up. There is one sandbox per profile and folder,
-named `tabard-<profile>-<folder>-<hash>`; launching again goes back into it, with whatever was
-installed in it. Inside a git repository the "folder" is the repository's root: it is what gets
-mounted, so git finds its `.git` from any subfolder, and the session starts in the folder you
-launched from. A worktree's or submodule's `.git` file points somewhere else, and that git directory
-is mounted too. A repository that cannot be mounted (one rooted at your home directory, say) falls
-back to the folder alone, with a warning.
-
-**Images.** sbx's default image has git, `gh`, python, uv, docker and the like, but no .NET or Node.
-Rather than install a toolchain in every sandbox, install it once, save the sandbox with
-`sbx template save <sandbox> <tag>`, and point the profile at it with `tabard sandbox image`. Any
-image `sbx run -t` takes will do. The image is fixed when a sandbox is made, so choosing one makes
-new sandboxes from then on and leaves the old ones for `sbx rm`. The choice lives in
-`~/.tabard/images`, outside every profile.
+Either way the profile's directory is the agent's `CLAUDE_CONFIG_DIR` (or `PI_CODING_AGENT_DIR`),
+the same as a direct launch, so login, history and settings are shared between the two, and the
+folder and profile keep the paths they have here, which keeps the per-project entries in
+`.claude.json` lining up. Inside a git repository the "folder" is the repository's root, so git
+finds its `.git` from any subfolder, and the session starts in the folder you launched from. A
+worktree's or submodule's `.git` file points somewhere else, and that git directory is included
+too. A repository that cannot be (one rooted at your home directory, say) falls back to the folder
+alone, with a warning.
 
 What the sandbox can and cannot touch:
 
@@ -427,9 +428,55 @@ What the sandbox can and cannot touch:
   tracking. Commit, branch and push work; set upstreams from outside.
 - **Writable:** the current folder (or repository), and the rest of the profile — credentials, history and
   `.claude.json` — which Claude Code has to update as it runs.
-- **The on/off list** is `~/.tabard/sandboxed`, outside every profile, so a sandbox cannot switch
-  itself off. For the same reason tabard refuses to sandbox a folder that contains `~/.tabard`,
+- **The settings** — `~/.tabard/sandboxed` (on or off) and `~/.tabard/sandbox.json` (kind and
+  sites) — live outside every profile, so a sandbox cannot switch itself off or loosen itself. For the same reason tabard refuses to sandbox a folder that contains `~/.tabard`,
   such as your home directory.
+
+### srt
+
+tabard writes srt a policy for each launch and runs the agent under it:
+
+- **Files.** The agent can write only to the folder (or repository), its profile, and a temp folder
+  of its own (`TMPDIR` points there), minus the read-only parts above. It can read the rest of the
+  system — its own installation, your toolchains — but not other profiles, `~/.ssh`, `~/.gnupg`,
+  `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.config/gh`, `~/.kube`, `~/.docker`, `~/.netrc`,
+  `~/.npmrc`, `~/.pypirc`, `~/.git-credentials`, or an unmanaged `~/.claude` or pi login. The macOS
+  Keychain stays reachable, so a Keychain login works as it does directly; each item's own access
+  control still applies.
+- **Network.** Everything goes through srt's proxy, which lets through only what the agent needs —
+  Anthropic for Claude Code; for pi, the endpoints in its `models.json` and the built-in providers it
+  defaults to or is logged in to — plus common developer sites, the profile's allowed sites, and the
+  port it [waits for](#running-something-alongside). The developer sites are the code hosts
+  (GitHub, GitLab, Bitbucket) and the main package registries (npm, JSR, PyPI, NuGet, crates.io,
+  Go's module proxy, RubyGems, Maven Central, Gradle, Packagist) along with their toolchain
+  downloads. A refused site answers `403`. Add sites with `tabard sandbox allow` or the editor's
+  **Allowed sites**: a host (`example.com`), a wildcard (`*.corp.dev`), or a host and port
+  (`localhost:3000`).
+- **Local model servers** work unchanged: a `models.json` pointing at `http://127.0.0.1:8080/v1`, or
+  a port to wait for, reaches that port here through the proxy, and no other local port.
+
+Things to know:
+
+- **Your git identity is yours** — the sandbox shares your home — but SSH keys are out of reach,
+  so push over HTTPS (GitHub, GitLab and Bitbucket are allowed) or from outside.
+- **Tools that write to your home** (npm's cache, pip's, cargo's) are refused there. Point them at
+  the project or `$TMPDIR`, or install from outside.
+- **The agent cannot listen on local ports** on macOS, so a dev server it starts will not come up.
+- **srt is not supported on Windows** yet: its Windows support is alpha and runs the agent as a
+  separate account set up with an admin prompt.
+
+### Docker Sandboxes (sbx)
+
+`tabard sandbox kind <name> sbx` launches a profile with `sbx run claude` instead. There is one
+sandbox per profile and folder, named `tabard-<profile>-<folder>-<hash>`; launching again goes back
+into it, with whatever was installed in it.
+
+**Images.** sbx's default image has git, `gh`, python, uv, docker and the like, but no .NET or Node.
+Rather than install a toolchain in every sandbox, install it once, save the sandbox with
+`sbx template save <sandbox> <tag>`, and point the profile at it with `tabard sandbox image`. Any
+image `sbx run -t` takes will do. The image is fixed when a sandbox is made, so choosing one makes
+new sandboxes from then on and leaves the old ones for `sbx rm`. The choice lives in
+`~/.tabard/images`, outside every profile.
 
 Things to know:
 
@@ -458,7 +505,7 @@ Things to know:
   servers. Those take effect in any later session that opens them, sandboxed or not. Keeping a
   sandboxed profile sandboxed is the way to keep that inside the box.
 
-### pi in a sandbox
+#### pi in a Docker sandbox
 
 sbx has no pi agent, so a sandboxed pi profile runs under sbx's `shell` agent with the profile's
 directory as `PI_CODING_AGENT_DIR`. Its sandboxes come from a template tabard builds the first time:
@@ -483,9 +530,9 @@ stricter policy, allow it with `sbx policy allow network localhost:<port>`.
 
 ### Other kinds of sandbox
 
-Docker Sandboxes is the only kind for now, but tabard keeps it behind one interface (`ISandbox`):
-which profiles are sandboxed and what a launch mounts are tabard's, and how the agent gets isolated
-is the sandbox's. Another kind can be added beside it without touching the rest.
+Each kind sits behind one interface (`ISandbox`): which profiles are sandboxed, which kind, and what
+a launch may touch are tabard's, and how the agent gets isolated is the sandbox's. Another kind can
+be added beside srt and sbx without touching the rest.
 
 ## Other ways to install
 
