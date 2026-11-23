@@ -211,7 +211,12 @@ public class CompanionsTests
         var profile = ProfileStore.Create("local");
         using (ProfileStore.AcquireLock())
         {
-            Companions.Set("local", "echo missing --profile >&2; exit 3");
+            Companions.Set(
+                "local",
+                OperatingSystem.IsWindows()
+                    ? ">&2 echo missing --profile& exit /b 3"
+                    : "echo missing --profile >&2; exit 3"
+            );
             Companions.SetWaitFor("local", $"127.0.0.1:{FreePort()}");
         }
 

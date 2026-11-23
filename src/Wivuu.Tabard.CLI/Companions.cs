@@ -356,7 +356,21 @@ internal static class Companions
 
                 lock (writer)
                 {
-                    var lines = File.ReadAllLines(log);
+                    // Shared for writing: the log is still open in this process, and Windows refuses a
+                    // plain read of a file someone holds for writing.
+                    using var stream = new FileStream(
+                        log,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.ReadWrite
+                    );
+                    using var reader = new StreamReader(stream);
+                    var lines = reader
+                        .ReadToEnd()
+                        .Split('\n')
+                        .Select(l => l.TrimEnd('\r'))
+                        .Where(l => l.Length > 0)
+                        .ToArray();
                     var start =
                         Array.FindLastIndex(
                             lines,
