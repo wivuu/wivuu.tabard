@@ -58,6 +58,36 @@ internal static class Wizard
             ?.Value;
     }
 
+    /// <summary>
+    /// Fresh, or another profile's configuration to start from. False if the user escaped; true
+    /// with <paramref name="source"/> null for a fresh profile. Asks nothing, and answers fresh,
+    /// when there is nothing to copy.
+    /// </summary>
+    public static bool ChooseSource(Harness harness, out CopySource? source)
+    {
+        source = null;
+
+        var sources = ProfileCopy.Sources(harness);
+        if (sources.Count == 0)
+            return true;
+
+        List<Choice<CopySource?>> choices =
+        [
+            new(null, "Start fresh", "an empty profile"),
+            .. sources.Select(s => new Choice<CopySource?>(
+                s,
+                $"Copy {s.Label}",
+                "settings, instructions, plugins and skills - not its login or history"
+            )),
+        ];
+
+        if (Prompt.Select("Start from?", choices, c => c.Label, c => c.Detail) is not { } picked)
+            return false;
+
+        source = picked.Value;
+        return true;
+    }
+
     public static Provider? ChooseProvider()
     {
         Choice<Provider>[] choices =

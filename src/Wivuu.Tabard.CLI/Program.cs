@@ -68,7 +68,7 @@ internal static class Cli
     private const string SwitchUsage = "usage: tabard switch [name]";
 
     private const string AddUsage =
-        "usage: tabard add <name> [--pi | --openrouter] [--model <slug>] "
+        "usage: tabard add <name> [--pi | --openrouter] [--from <profile>] [--model <slug>] "
         + "[--opus|--sonnet|--haiku|--fable|--subagent <slug>] [--key-stdin]";
 
     /// <summary>
@@ -150,13 +150,16 @@ internal static class Cli
         if (Wizard.ChooseHarness() is not { } harness)
             return null;
 
+        if (Wizard.ChooseSource(harness, out var source) is false)
+            return null;
+
         if (harness is Harness.Pi)
-            return ProvisionPi(name);
+            return ProvisionPi(name, source);
 
         if (Wizard.ChooseProvider() is not { } provider)
             return null;
 
-        return Provision(new AddOptions { Name = name }, provider);
+        return Provision(new AddOptions { Name = name }, provider, source);
     }
 
     private const string UseUsage =
@@ -401,8 +404,17 @@ internal static class Cli
         if (harness is not { } chosenHarness)
             return Cancelled();
 
+        // Resolved before anything is created, so a '--from' naming nothing leaves nothing behind.
+        CopySource? source;
+        if (options.From is { } from)
+            source = ProfileCopy.Resolve(from, chosenHarness);
+        else if (!Term.Interactive)
+            source = null;
+        else if (Wizard.ChooseSource(chosenHarness, out source) is false)
+            return Cancelled();
+
         if (chosenHarness is Harness.Pi)
-            return CreatePi(options.Name);
+            return CreatePi(options.Name, source);
 
         // Asked before anything is created, so escaping the wizard leaves nothing behind. A pipe or
         // a CI job has no one to ask, and gets the login flow it has always got.
@@ -411,14 +423,16 @@ internal static class Cli
             : Term.Interactive ? Wizard.ChooseProvider()
             : Provider.Anthropic;
 
-        return provider is { } chosen ? Create(options, chosen) : Cancelled();
+        return provider is { } chosen ? Create(options, chosen, source) : Cancelled();
     }
 
-    private static int CreatePi(string name) => LaunchInto(ProvisionPi(name), []);
+    private static int CreatePi(string name, CopySource? source) =>
+        LaunchInto(ProvisionPi(name, source), []);
 
-    /// <summary>pi has its own '/login' and provider setup, so a new pi profile is an empty
-    /// directory marked as pi's, ready to launch.</summary>
-    private static Profile ProvisionPi(string name)
+    /// <summary>pi has its own '/login' and provider setup, so a new pi profile is a directory
+    /// marked as pi's - empty, or with <paramref name="source"/>'s configuration - ready to launch.
+    /// </summary>
+    private static Profile ProvisionPi(string name, CopySource? source)
     {
         Adopt();
 
@@ -428,6 +442,8 @@ internal static class Cli
         {
             using (ProfileStore.AcquireLock())
                 Harnesses.Set(profile.Name, Harness.Pi);
+
+            CopyInto(profile, Harness.Pi, source);
         }
         catch
         {
@@ -442,18 +458,55 @@ internal static class Cli
         return profile;
     }
 
-    private static int Create(AddOptions options, Provider provider) =>
-        Provision(options, provider) is { } profile ? LaunchInto(profile, []) : Cancelled();
+    private static int Create(AddOptions options, Provider provider, CopySource? source) =>
+        Provision(options, provider, source) is { } profile ? LaunchInto(profile, []) : Cancelled();
+
+    /// <summary>Starts <paramref name="profile"/> from <paramref name="source"/>'s configuration,
+    /// if there is one, and says so.</summary>
+    private static void CopyInto(Profile profile, Harness harness, CopySource? source)
+    {
+        if (source is null)
+            return;
+
+        foreach (var warning in ProfileCopy.Copy(harness, source, profile.Dir))
+            Console.Error.WriteLine($"tabard: {warning}");
+
+        Console.Error.WriteLine(
+            $"tabard: copied {source.Label}'s configuration into '{profile.Name}' - not its login or history."
+        );
+    }
 
     /// <summary>Makes the profile and sets it up, ready to launch. Null if the user backed out of
     /// setup, which leaves nothing behind - see <see cref="Configure"/>.</summary>
-    private static Profile? Provision(AddOptions options, Provider provider)
+    private static Profile? Provision(
+        AddOptions options,
+        Provider provider,
+        CopySource? source = null
+    )
     {
         // Before Create: once a profile exists there is nothing left to adopt, and an existing
-        // ~/.claude would be stranded outside the store forever.
+        // ~/.claude would be stranded outside the store forever. A source of ~/.claude still works
+        // afterwards: it is then a link to the profile it became.
         Adopt();
 
         var profile = ProfileStore.Create(options.Name);
+
+        try
+        {
+            CopyInto(profile, Harness.Claude, source);
+
+            // A copied OpenRouter setup would otherwise outvote the Anthropic login asked for.
+            if (provider is Provider.Anthropic)
+            {
+                foreach (var warning in ProfileCopy.ForgetOpenRouter(profile.Dir))
+                    Console.Error.WriteLine($"tabard: {warning}");
+            }
+        }
+        catch
+        {
+            Discard(profile);
+            throw;
+        }
 
         if (provider is Provider.OpenRouter && !Configure(profile, options))
             return null;
@@ -601,11 +654,13 @@ internal static class Cli
     {
         var options = AddOptions.Parse(
             args,
-            "usage: tabard openrouter add <name> [--model <slug>] "
+            "usage: tabard openrouter add <name> [--from <profile>] [--model <slug>] "
                 + "[--opus|--sonnet|--haiku|--fable|--subagent <slug>] [--key-stdin]"
         );
 
-        return Create(options with { UseOpenRouter = true }, Provider.OpenRouter);
+        var source = options.From is { } from ? ProfileCopy.Resolve(from, Harness.Claude) : null;
+
+        return Create(options with { UseOpenRouter = true }, Provider.OpenRouter, source);
     }
 
     private static int OpenRouterSet(string[] args)
@@ -951,6 +1006,9 @@ internal static class Cli
             launch pi is saved in ~/.tabard/harnesses.
 
             'tabard add <name> --pi' makes a pi profile without asking.
+            'tabard add <name> --from <profile>' starts it with that profile's settings, hooks,
+            plugins and skills - never its login or history. For pi, '--from pi' copies your own
+            ~/.pi/agent setup.
             'tabard add <name> --openrouter' skips the provider question; see
             'tabard openrouter help' for the rest.
             """

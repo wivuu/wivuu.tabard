@@ -11,6 +11,9 @@ internal sealed record AddOptions
 
     /// <summary>--pi: launch pi rather than Claude Code. Null when no harness flag was given.</summary>
     public Harness? Harness { get; init; }
+
+    /// <summary>--from: the profile (or, for pi, 'pi') whose configuration a new profile starts with.</summary>
+    public string? From { get; init; }
     public bool KeyFromStdin { get; init; }
 
     /// <summary>Environment variable name to model slug, for the slots that were given explicitly.</summary>
@@ -22,6 +25,7 @@ internal sealed record AddOptions
         string? name = null;
         var openRouter = false;
         Harness? harness = null;
+        string? from = null;
         var keyFromStdin = false;
         var models = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -38,6 +42,15 @@ internal sealed record AddOptions
             if (arg == "--pi")
             {
                 harness = Cli.Harness.Pi;
+                continue;
+            }
+
+            if (arg == "--from")
+            {
+                if (i + 1 >= args.Count)
+                    throw new ArgumentException("'--from' needs a profile to copy from.");
+
+                from = args[++i];
                 continue;
             }
 
@@ -95,6 +108,7 @@ internal sealed record AddOptions
             Name = name ?? throw new ArgumentException(usage),
             UseOpenRouter = openRouter,
             Harness = harness,
+            From = from,
             KeyFromStdin = keyFromStdin,
             Models = models,
         };

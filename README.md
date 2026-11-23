@@ -265,6 +265,29 @@ Claude Code cannot work without those — plus the aliases and routers, which de
 and would otherwise be filtered out of their own defaults. If OpenRouter can't be reached, a small
 built-in list is shown instead and any slug can still be set with a flag.
 
+## Starting from another profile
+
+A new profile can start with another one's setup instead of empty. `tabard add` (and `+ new profile`
+in the picker) asks **Start from?** whenever there is something to copy:
+
+- another profile with the same harness (Claude Code or pi);
+- for pi, your own pi setup in `~/.pi/agent`;
+- for Claude Code, your `~/.claude` if tabard has not adopted it yet.
+
+```sh
+tabard add job --from work        # Claude Code, starting from 'work'
+tabard add local --pi --from pi   # pi, starting from ~/.pi/agent
+```
+
+Only configuration is copied: for Claude Code that is `settings.json`, `CLAUDE.md`, `keybindings.json`,
+`hooks/`, `plugins/`, `commands/`, `agents/`, `skills/`, `output-styles/` and loose scripts; for pi,
+`settings.json`, `models.json`, `keybindings.json`, `mcp.json`, `AGENTS.md`, the system prompt
+files, `extensions/`, `skills/`, `prompts/` and `themes/`. Logins (`.credentials.json`, `auth.json`),
+`.claude.json` (your account, per-project state and user-scope MCP servers) and history stay behind,
+so the new profile signs in on its own. Paths in the copied JSON that named the old profile, such as
+plugin install locations, are pointed at the new one. Copying an OpenRouter profile into one that
+logs in with Anthropic drops the OpenRouter settings and key.
+
 ## pi profiles
 
 A profile can launch [pi](https://github.com/badlogic/pi-mono) instead of Claude Code. `tabard add`

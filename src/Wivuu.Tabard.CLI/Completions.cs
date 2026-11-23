@@ -67,7 +67,7 @@ internal static class Completions
 
     private static readonly string[] SetupFlags = [.. ModelFlags, "--key-stdin"];
 
-    private static readonly string[] AddFlags = ["--pi", "--openrouter", .. SetupFlags];
+    private static readonly string[] AddFlags = ["--pi", "--from", "--openrouter", .. SetupFlags];
 
     /// <summary>
     /// Offered after a model flag. The built-in list rather than the live catalog on purpose: a
@@ -114,6 +114,9 @@ internal static class Completions
         // flag is that flag's value.
         if (ModelFlags.Contains(before[^1], StringComparer.Ordinal))
             return ModelSlugs;
+
+        if (before[^1] == "--from")
+            return ["pi", .. Profiles()];
 
         return before[0] switch
         {
