@@ -9,13 +9,74 @@ public class SandboxesTests
     public void StartFromABareHome() => Sandbox.Reset();
 
     [Test]
-    public async Task Every_profile_uses_the_default_sandbox_for_now()
+    public async Task A_profile_uses_whichever_kind_is_installed_unless_it_picks_one()
     {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var path = new OnlyOnPath();
         var profile = ProfileStore.Create("work");
 
-        await Assert.That(Sandboxes.For(profile)).IsSameReferenceAs(Sandboxes.Default);
-        await Assert.That(Sandboxes.Named("SBX")).IsSameReferenceAs(Sandboxes.Default);
+        // Neither installed: srt, which is what the install hint offers first.
+        await Assert.That(Sandboxes.For(profile)).IsTypeOf<SrtSandbox>();
+
+        using (new FakeSbx())
+        {
+            await Assert.That(Sandboxes.For(profile)).IsTypeOf<SbxSandbox>();
+
+            using (new FakeSrt())
+                await Assert.That(Sandboxes.For(profile)).IsTypeOf<SrtSandbox>();
+        }
+
+        // A choice holds whatever is installed.
+        SandboxOptions.SetKind("work", "SBX");
+        await Assert.That(Sandboxes.For(profile)).IsTypeOf<SbxSandbox>();
+        await Assert.That(SandboxOptions.KindOf("work")).IsEqualTo("sbx");
+
+        SandboxOptions.SetKind("work", "srt");
+        await Assert.That(SandboxOptions.KindOf("work")).IsEqualTo("srt");
+
+        SandboxOptions.SetKind("work", null);
+        await Assert.That(SandboxOptions.KindOf("work")).IsNull();
+
         await Assert.That(Sandboxes.Named("firecracker")).IsNull();
+        await Assert
+            .That(() => SandboxOptions.SetKind("work", "firecracker"))
+            .Throws<ArgumentException>();
+    }
+
+    /// <summary>Switching sandboxing on with nothing to run it says what to install, and how.
+    /// </summary>
+    [Test]
+    public async Task Sandboxing_cannot_be_switched_on_with_nothing_installed()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var path = new OnlyOnPath();
+        ProfileStore.Create("work");
+
+        var refusal = Sandboxes.Refusal("work");
+        await Assert.That(refusal).Contains("npm install -g @anthropic-ai/sandbox-runtime");
+        await Assert.That(refusal).Contains("brew install docker/tap/sbx");
+
+        await Assert.That(global::Cli.Run(["sandbox", "on", "work"])).IsEqualTo(1);
+        await Assert.That(Sandboxing.IsOn("work")).IsFalse();
+
+        // A kind picked but not installed names that one.
+        SandboxOptions.SetKind("work", "sbx");
+        using (new FakeSrt())
+        {
+            await Assert.That(Sandboxes.Refusal("work")).Contains("brew install docker/tap/sbx");
+            await Assert.That(Sandboxes.Refusal("work")).DoesNotContain("npm install");
+        }
+
+        using (new FakeSbx())
+        {
+            await Assert.That(Sandboxes.Refusal("work")).IsNull();
+            await Assert.That(global::Cli.Run(["sandbox", "on", "work"])).IsEqualTo(0);
+            await Assert.That(Sandboxing.IsOn("work")).IsTrue();
+        }
     }
 
     /// <summary>Only a server on this machine needs bridging into a sandbox; one elsewhere is
@@ -154,6 +215,7 @@ public class SandboxesTests
         var profile = ProfileStore.Create("local");
         Harnesses.Set("local", Harness.Pi);
         Sandboxing.Set("local", true);
+        SandboxOptions.SetKind("local", "sbx");
 
         await Assert.That(global::Cli.Run(["use", "local", "--", "-c"])).IsEqualTo(0);
 
@@ -193,6 +255,7 @@ public class SandboxesTests
         ProfileStore.Create("local");
         Harnesses.Set("local", Harness.Pi);
         Sandboxing.Set("local", true);
+        SandboxOptions.SetKind("local", "sbx");
 
         await Assert.That(global::Cli.Run(["use", "local"])).IsEqualTo(0);
 

@@ -194,7 +194,8 @@ internal static class Cli
     }
 
     private const string SandboxUsage =
-        "usage: tabard sandbox [on|off] [name] | tabard sandbox image <name> [<image>|--default]";
+        "usage: tabard sandbox [on|off] [name] | tabard sandbox kind <name> [srt|sbx] | "
+        + "tabard sandbox allow <name> [<site>...|--none] | tabard sandbox image <name> [<image>|--default]";
 
     /// <summary>
     /// The picker's 's' key, for a script or a terminal without the picker. With no verb it reports,
@@ -225,9 +226,18 @@ internal static class Cli
                 foreach (var profile in profiles)
                 {
                     var on = sandboxed.Contains(profile.Name);
-                    var image = images.TryGetValue(profile.Name, out var set) ? $"  -  {set}" : "";
+                    var kind = Sandboxes.For(profile);
+                    var detail = kind switch
+                    {
+                        SrtSandbox
+                            when SandboxOptions.AllowedOf(profile.Name) is { Count: > 0 } sites =>
+                            $"  -  also {string.Join(", ", sites)}",
+                        SbxSandbox when images.TryGetValue(profile.Name, out var set) =>
+                            $"  -  {set}",
+                        _ => "",
+                    };
                     Console.WriteLine(
-                        $"{Sandboxing.Mark(on)} {profile.Name, -18}{(on ? "sandbox" : "direct")}{image}"
+                        $"{Sandboxing.Mark(on)} {profile.Name, -18}{(on ? kind.Name : "direct"), -7}{(on ? detail : "")}"
                     );
                 }
 
@@ -265,12 +275,77 @@ internal static class Cli
                 return 0;
             }
 
-            case [var name] when !name.StartsWith('-') && name is not ("on" or "off" or "image"):
+            case ["kind", var name]:
+            {
+                var profile = Require(name);
+                Console.WriteLine(
+                    $"'{profile.Name}' uses {Sandboxes.For(profile).Description} when sandboxed."
+                );
+                return 0;
+            }
+
+            case ["kind", var name, var kind]:
+            {
+                var profile = Require(name);
+
+                using (ProfileStore.AcquireLock())
+                    SandboxOptions.SetKind(profile.Name, kind);
+
+                var chosen = Sandboxes.For(profile);
+                Console.Error.WriteLine(
+                    Sandboxing.IsOn(profile.Name)
+                        ? $"tabard: {Sandboxing.Status(profile.Name, true)}"
+                        : $"tabard: '{profile.Name}' will use {chosen.Description} once sandboxed - "
+                            + $"'tabard sandbox on {profile.Name}'."
+                );
+                WarnIfMissing(profile, chosen);
+                return 0;
+            }
+
+            case ["allow", var name]:
+            {
+                var profile = Require(name);
+                var sites = SandboxOptions.AllowedOf(profile.Name);
+                Console.WriteLine(
+                    sites.Count == 0
+                        ? $"'{profile.Name}' reaches only what {Harnesses.DisplayName(profile.Harness)} needs."
+                        : $"'{profile.Name}' may also reach {string.Join(", ", sites)}."
+                );
+                return 0;
+            }
+
+            case ["allow", var name, .. var sites]:
+            {
+                var profile = Require(name);
+                var text = sites is ["--none" or "none"] ? null : string.Join(' ', sites);
+
+                using (ProfileStore.AcquireLock())
+                    SandboxOptions.SetAllowed(profile.Name, text);
+
+                var now = SandboxOptions.AllowedOf(profile.Name);
+                Console.Error.WriteLine(
+                    now.Count == 0
+                        ? $"tabard: '{profile.Name}' will reach only what {Harnesses.DisplayName(profile.Harness)} needs."
+                        : $"tabard: '{profile.Name}' may also reach {string.Join(", ", now)}."
+                );
+
+                if (Sandboxes.For(profile) is not SrtSandbox)
+                    Console.Error.WriteLine(
+                        $"tabard: these apply to srt sandboxes; '{profile.Name}' uses "
+                            + $"{Sandboxes.For(profile).Description}, whose network is sbx's policy."
+                    );
+
+                return 0;
+            }
+
+            case [var name]
+                when !name.StartsWith('-')
+                    && name is not ("on" or "off" or "image" or "kind" or "allow"):
             {
                 var profile = Require(name);
                 Console.WriteLine(
                     Sandboxing.IsOn(profile.Name)
-                        ? $"'{profile.Name}' launches in a Docker sandbox."
+                        ? $"'{profile.Name}' launches in {Sandboxes.For(profile).Description}."
                         : $"'{profile.Name}' launches directly."
                 );
                 return 0;
@@ -281,17 +356,16 @@ internal static class Cli
                 var profile = Require(name);
                 var on = verb == "on";
 
+                if (on && Sandboxes.Refusal(profile.Name) is { } refusal)
+                {
+                    Console.Error.WriteLine($"tabard: cannot sandbox '{profile.Name}': {refusal}");
+                    return 1;
+                }
+
                 using (ProfileStore.AcquireLock())
                     Sandboxing.Set(profile.Name, on);
 
                 Console.Error.WriteLine($"tabard: {Sandboxing.Status(profile.Name, on)}");
-
-                if (on && Launcher.Which(Sbx.Executable) is null)
-                    Console.Error.WriteLine(
-                        "tabard: 'sbx' is not on PATH yet - install it with 'brew install docker/tap/sbx' "
-                            + "before launching it."
-                    );
-
                 return 0;
             }
 
@@ -300,47 +374,71 @@ internal static class Cli
         }
     }
 
+    /// <summary>Said when a profile is switched to a kind of sandbox, rather than at its next
+    /// launch.</summary>
+    private static void WarnIfMissing(Profile profile, ISandbox sandbox)
+    {
+        if (sandbox.Unsupported(profile) is { } reason)
+            Console.Error.WriteLine($"tabard: {reason}");
+        else if (!sandbox.Available)
+            Console.Error.WriteLine(
+                $"tabard: '{sandbox.Executable}' is not on PATH yet - install it with "
+                    + $"'{sandbox.Install}' before launching it."
+            );
+    }
+
     private const string SandboxHelpText = """
-        tabard sandbox - launch a profile's agent inside a Docker sandbox
+        tabard sandbox - launch a profile's agent inside a sandbox
 
         Usage:
-          tabard sandbox                 Show which profiles launch in a sandbox
+          tabard sandbox                 Show which profiles launch in a sandbox, and which kind
           tabard sandbox <name>          Show whether one does
           tabard sandbox on <name>       Launch it in a sandbox from now on
           tabard sandbox off <name>      Launch it directly again
           tabard use <name> --sandbox    Just this once, either way
           tabard use <name> --no-sandbox
-          tabard sandbox image <name> <image>      Make its sandboxes from another image
+          tabard sandbox kind <name> srt|sbx       Which kind of sandbox (whichever is installed)
+          tabard sandbox allow <name> <site>...    Sites an srt sandbox may also reach
+          tabard sandbox allow <name> --none       Only what the agent needs again
+          tabard sandbox image <name> <image>      Make its sbx sandboxes from another image
           tabard sandbox image <name> --default    Back to sbx's own
 
-        In the picker, 's' turns it on and off for the highlighted profile.
+        In the picker, 's' turns it on and off for the highlighted profile, and 'e' opens its
+        settings, where Sandbox cycles through off and the kinds installed here. A profile that has
+        not picked a kind uses srt if it is installed, otherwise sbx. With neither installed,
+        switching it on says what to install.
 
-        A sandboxed launch runs 'sbx run claude' (Docker Sandboxes, brew install docker/tap/sbx).
-        The agent runs in a microVM that sees only the current folder - the whole git repository,
-        when the folder is inside one - and the profile's own directory, each at the same path as
-        here. One sandbox is made per profile and folder (or repository), and launching again goes
-        back into it, with whatever was installed in it. Your git identity, as a commit here
-        would record it, is passed in, and the repository's .git/hooks and .git/config are
-        read-only.
+        Either kind sees the current folder - the whole git repository, when the folder is inside
+        one - and the profile's own directory, at the same paths as here. The profile's
+        settings.json, CLAUDE.md, hooks, plugins, commands, agents, skills and loose scripts (for
+        pi: settings.json, models.json, AGENTS.md, extensions, skills, prompts and themes) are
+        read-only, and so are the repository's .git/hooks and .git/config, so nothing a session
+        does can plant code that runs on this machine the next time you launch it directly.
 
-        An image is anything 'sbx run -t' takes - a snapshot saved with 'sbx template save', say,
-        after installing the tools a project needs. It applies to sandboxes made from then on.
+        srt (npm install -g @anthropic-ai/sandbox-runtime) runs the agent installed
+        here under this machine's own sandbox: Seatbelt on macOS, bubblewrap on Linux. It starts at
+        once and keeps nothing between launches. The agent can change only the folder, its profile
+        and a temp folder of its own, and cannot read other profiles, ~/.ssh or the usual
+        credential stores. Its network goes through srt's proxy, which lets through only the sites
+        its agent needs - Anthropic for Claude Code; for pi, the providers in its models.json and
+        those it is logged in to - common developer sites (GitHub, GitLab, Bitbucket and the npm,
+        PyPI, NuGet, crates.io, Go, RubyGems, Maven and Packagist registries), the profile's allowed
+        sites, and the port it waits for (the editor's 'Wait for port'). A refused site answers
+        403; allow it with 'tabard sandbox allow' (example.com, *.corp.dev, localhost:3000), or in
+        the editor's Network screen, which lists every site and can also block a default one.
 
-        Inside the sandbox the profile's settings.json, CLAUDE.md, hooks, plugins, commands, agents,
-        skills and loose scripts are read-only, so nothing it does can plant code that runs on this
-        machine the next time you launch the profile directly. Log in with /login the first time:
-        a macOS Keychain login cannot be read from inside the sandbox.
+        sbx (Docker Sandboxes, brew install docker/tap/sbx) runs the agent in a microVM. One
+        sandbox is made per profile and folder (or repository), and launching again goes back into
+        it, with whatever was installed in it. Your git identity is passed in. Claude Code runs as
+        sbx's 'claude' agent - log in with /login the first time, since a macOS Keychain login
+        cannot be read from inside - and an image is anything 'sbx run -t' takes. pi runs under
+        sbx's 'shell' agent in a template holding Node.js and the pi version installed here, built
+        the first time (a few minutes, once per pi version) and named tabard-pi:<version>. The port
+        a profile waits for answers at 127.0.0.1 inside; the network is otherwise sbx's policy.
 
-        pi has no sbx agent of its own, so a sandboxed pi profile runs under sbx's 'shell' agent,
-        in sandboxes made from a template holding Node.js and the pi version installed here. The
-        template is built the first time - a few minutes, once per pi version - and named
-        tabard-pi:<version>; 'sbx template rm' removes old ones. Its settings.json, models.json,
-        AGENTS.md, extensions, skills, prompts and themes are read-only. If the profile waits for a
-        port on this machine (the editor's 'Wait for port'), 127.0.0.1:<port> inside the sandbox
-        reaches it, so a local model server works unchanged; nothing else of the host does.
-
-        Which profiles are sandboxed is kept in ~/.tabard/sandboxed, and their images in
-        ~/.tabard/images, outside every profile, so a sandbox cannot change either.
+        Which profiles are sandboxed is kept in ~/.tabard/sandboxed, their kind and sites in
+        ~/.tabard/sandbox.json, and sbx images in ~/.tabard/images - outside every profile, so a
+        sandbox cannot change any of them.
         """;
 
     /// <summary>
@@ -1030,7 +1128,7 @@ internal static class Cli
               tabard switch [name]        Make a profile the current one without launching
               tabard add <name>           Create a profile: Claude Code (Anthropic or OpenRouter) or pi
               tabard rm <name>            Delete a profile
-              tabard sandbox <cmd>        Launch a profile inside a Docker sandbox, or not
+              tabard sandbox <cmd>        Launch a profile inside a sandbox (srt or sbx), or not
               tabard ls                   List profiles
               tabard openrouter <cmd>     Configure a Claude Code profile's OpenRouter settings
               tabard completion install   Install tab completion for zsh, bash or PowerShell
@@ -1046,13 +1144,13 @@ internal static class Cli
                                run alongside it (started with the agent, stopped when it exits)
                                and a port to wait for before the agent launches
               r                rename the highlighted profile (enter saves, esc cancels)
-              s                launch the highlighted profile in a Docker sandbox, or not
+              s                launch the highlighted profile in a sandbox, or not
               x then x         delete the highlighted profile
               esc or q         quit
 
             The picker keeps the order you put profiles in; it is saved in ~/.tabard/order.
             Each folder's last profile is saved in ~/.tabard/directories.json.
-            A mark beside a profile means it launches in a Docker sandbox; see 'tabard sandbox help'.
+            A mark beside a profile means it launches in a sandbox; see 'tabard sandbox help'.
 
             Each profile is a directory in ~/.tabard/profiles/<name> with its own login, settings
             and history, and launches one agent:

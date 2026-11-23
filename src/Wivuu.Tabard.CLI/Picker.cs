@@ -312,6 +312,12 @@ internal static class Picker
                         var name = profiles[index].Name;
                         var on = !sandboxed.Contains(name);
 
+                        if (on && Sandboxes.Refusal(name) is { } refusal)
+                        {
+                            status = refusal;
+                            break;
+                        }
+
                         try
                         {
                             using (ProfileStore.AcquireLock())

@@ -336,15 +336,22 @@ internal static class ProfileStore
         DirectoryMemory.RenameProfile(profile.Name, newName);
         Sbx.MoveImage(profile.Name, newName);
         Harnesses.RenameProfile(profile.Name, newName);
+        var usedSbx = Sandboxes.For(profile.Name) is SbxSandbox;
         Companions.RenameProfile(profile.Name, newName);
+        SandboxOptions.RenameProfile(profile.Name, newName);
 
         var warnings = new List<string>();
 
-        // The setting follows the profile. Its sandboxes cannot: sbx fixed their mounts at the old
-        // path, so the next launch makes new ones and the old ones are left for 'sbx rm'.
+        // The setting follows the profile. Docker sandboxes cannot: sbx fixed their mounts at the old
+        // path, so the next launch makes new ones and the old ones are left for 'sbx rm'. srt keeps
+        // nothing between launches, so there is nothing to leave.
         if (Sandboxing.IsOn(profile.Name))
         {
             Sandboxing.RenameProfile(profile.Name, newName);
+        }
+
+        if (Sandboxing.IsOn(newName) && usedSbx)
+        {
             warnings.Add(
                 $"'{profile.Name}' had Docker sandboxes, which still point at its old directory. "
                     + "Remove them with 'sbx ls' and 'sbx rm'; the next launch makes new ones."
@@ -421,7 +428,7 @@ internal static class ProfileStore
         if (Order() is { Count: > 0 } order && order.Remove(profile.Name))
             TrySetOrder(order);
 
-        var sandboxed = Sandboxing.IsOn(profile.Name);
+        var sandboxed = Sandboxing.IsOn(profile.Name) && Sandboxes.For(profile.Name) is SbxSandbox;
 
         // A block, closed before the acquire below: the lock is not reentrant, so holding it there
         // would spend AcquireLock's whole retry budget waiting on ourselves.
@@ -432,6 +439,7 @@ internal static class ProfileStore
             Sbx.MoveImage(profile.Name, null);
             Harnesses.ForgetProfile(profile.Name);
             Companions.ForgetProfile(profile.Name);
+            SandboxOptions.ForgetProfile(profile.Name);
         }
 
         // Not removed for you: tabard cannot tell its sandboxes apart from ones made by hand

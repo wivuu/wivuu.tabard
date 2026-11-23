@@ -13,6 +13,14 @@ internal sealed class SbxSandbox : ISandbox
 
     public string Description => "a Docker sandbox";
 
+    public string Executable => Sbx.Executable;
+
+    public string Install => "brew install docker/tap/sbx";
+
+    /// <summary>The sandbox sees the host's paths at the same paths, and a Windows path means
+    /// nothing to the Linux inside it.</summary>
+    public bool SupportedHere => !OperatingSystem.IsWindows();
+
     public string? Unsupported(Profile profile)
     {
         // The sandbox sees the host's paths at the same paths, and a Windows path means nothing to
