@@ -333,6 +333,18 @@ public class CliTests
     {
         ProfileStore.Create("work");
 
+        // No sandbox runs on Windows, so there it cannot be switched on at all.
+        if (OperatingSystem.IsWindows())
+        {
+            await Assert.That(global::Cli.Run(["sandbox", "on", "work"])).IsEqualTo(1);
+            await Assert.That(Sandboxing.IsOn("work")).IsFalse();
+            return;
+        }
+
+        // Switching on needs a sandbox installed - a stand-in here, whatever this machine has.
+        using var path = new OnlyOnPath();
+        using var srt = new FakeSrt();
+
         await Assert.That(global::Cli.Run(["sandbox", "on", "work"])).IsEqualTo(0);
         await Assert.That(Sandboxing.IsOn("work")).IsTrue();
 
