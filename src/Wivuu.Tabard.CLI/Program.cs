@@ -32,6 +32,7 @@ internal static class Cli
             "rm" or "remove" => Remove(args[1..]),
             "use" => Use(args[1..]),
             "switch" or "sw" => Switch(args[1..]),
+            "sandbox" or "sbx" => SandboxCommand(args[1..]),
             "openrouter" or "or" => OpenRouterCommand(args[1..]),
             "completion" or "completions" => CompletionCommand(args[1..]),
             "__complete" => Complete(args[1..]),
@@ -127,20 +128,178 @@ internal static class Cli
         return Provision(new AddOptions { Name = name }, provider);
     }
 
+    private const string UseUsage =
+        "usage: tabard use <name> [--sandbox|--no-sandbox] [-- claude args]";
+
     private static int Use(string[] args)
     {
         if (args.Length == 0)
-            throw new ArgumentException("usage: tabard use <name> [-- claude args]");
+            throw new ArgumentException(UseUsage);
 
         Adopt();
 
         var profile = Require(args[0]);
         var rest = args[1..];
+
+        // Only straight after the name, so everything else still goes through to claude as it
+        // always has - and '--' is the way to hand claude a flag of the same spelling.
+        bool? sandbox = rest switch
+        {
+            ["--sandbox", ..] => true,
+            ["--no-sandbox", ..] => false,
+            _ => null,
+        };
+
+        if (sandbox is not null)
+            rest = rest[1..];
+
         if (rest.Length > 0 && rest[0] == "--")
             rest = rest[1..];
 
-        return LaunchInto(profile, rest);
+        return LaunchInto(profile, rest, sandbox);
     }
+
+    private const string SandboxUsage =
+        "usage: tabard sandbox [on|off] [name] | tabard sandbox image <name> [<image>|--default]";
+
+    /// <summary>
+    /// The picker's 's' key, for a script or a terminal without the picker. With no verb it reports,
+    /// so 'tabard sandbox' on its own is as safe to run as 'tabard ls'.
+    /// </summary>
+    private static int SandboxCommand(string[] args)
+    {
+        if (args is [("help" or "--help" or "-h"), ..])
+        {
+            Console.WriteLine(SandboxHelpText);
+            return 0;
+        }
+
+        switch (args)
+        {
+            case []:
+            {
+                var sandboxed = Sandboxing.Names();
+                var images = Sandboxing.Images();
+                var profiles = ProfileStore.List();
+
+                if (profiles.Count == 0)
+                {
+                    Console.WriteLine("No profiles yet. Run 'tabard add <name>'.");
+                    return 0;
+                }
+
+                foreach (var profile in profiles)
+                {
+                    var on = sandboxed.Contains(profile.Name);
+                    var image = images.TryGetValue(profile.Name, out var set) ? $"  -  {set}" : "";
+                    Console.WriteLine(
+                        $"{Sandboxing.Mark(on)} {profile.Name, -18}{(on ? "sandbox" : "direct")}{image}"
+                    );
+                }
+
+                return 0;
+            }
+
+            case ["image", var name]:
+            {
+                var profile = Require(name);
+                Console.WriteLine(
+                    Sandboxing.ImageOf(profile.Name) is { } image
+                        ? $"'{profile.Name}' makes its sandboxes from {image}."
+                        : $"'{profile.Name}' makes its sandboxes from sbx's default image."
+                );
+                return 0;
+            }
+
+            case ["image", var name, var image]:
+            {
+                var profile = Require(name);
+                var chosen = image is "--default" or "default" ? null : image;
+
+                using (ProfileStore.AcquireLock())
+                    Sandboxing.SetImage(profile.Name, chosen);
+
+                Console.Error.WriteLine(
+                    chosen is null
+                        ? $"tabard: '{profile.Name}' will make its sandboxes from sbx's default image."
+                        : $"tabard: '{profile.Name}' will make its sandboxes from {chosen}."
+                );
+                Console.Error.WriteLine(
+                    "tabard: sandboxes it already has keep their image; the next launch in each "
+                        + "folder makes a new one. Tidy the old ones with 'sbx ls' and 'sbx rm'."
+                );
+                return 0;
+            }
+
+            case [var name] when !name.StartsWith('-') && name is not ("on" or "off" or "image"):
+            {
+                var profile = Require(name);
+                Console.WriteLine(
+                    Sandboxing.IsOn(profile.Name)
+                        ? $"'{profile.Name}' launches in a Docker sandbox."
+                        : $"'{profile.Name}' launches directly."
+                );
+                return 0;
+            }
+
+            case [var verb, var name] when verb is "on" or "off":
+            {
+                var profile = Require(name);
+                var on = verb == "on";
+
+                using (ProfileStore.AcquireLock())
+                    Sandboxing.Set(profile.Name, on);
+
+                Console.Error.WriteLine($"tabard: {Sandboxing.Status(profile.Name, on)}");
+
+                if (on && Launcher.Which(Sandboxing.Executable) is null)
+                    Console.Error.WriteLine(
+                        "tabard: 'sbx' is not on PATH yet - install it with 'brew install docker/tap/sbx' "
+                            + "before launching it."
+                    );
+
+                return 0;
+            }
+
+            default:
+                throw new ArgumentException(SandboxUsage);
+        }
+    }
+
+    private const string SandboxHelpText = """
+        tabard sandbox - launch a profile's Claude Code inside a Docker sandbox
+
+        Usage:
+          tabard sandbox                 Show which profiles launch in a sandbox
+          tabard sandbox <name>          Show whether one does
+          tabard sandbox on <name>       Launch it in a sandbox from now on
+          tabard sandbox off <name>      Launch it directly again
+          tabard use <name> --sandbox    Just this once, either way
+          tabard use <name> --no-sandbox
+          tabard sandbox image <name> <image>      Make its sandboxes from another image
+          tabard sandbox image <name> --default    Back to sbx's own
+
+        In the picker, 's' turns it on and off for the highlighted profile.
+
+        A sandboxed launch runs 'sbx run claude' (Docker Sandboxes, brew install docker/tap/sbx).
+        Claude Code runs in a microVM that sees only the current folder - the whole git repository,
+        when the folder is inside one - and the profile's own directory, each at the same path as
+        here. One sandbox is made per profile and folder (or repository), and launching again goes
+        back into it, with whatever was installed in it. Your git identity, as a commit here
+        would record it, is passed in, and the repository's .git/hooks and .git/config are
+        read-only.
+
+        An image is anything 'sbx run -t' takes - a snapshot saved with 'sbx template save', say,
+        after installing the tools a project needs. It applies to sandboxes made from then on.
+
+        Inside the sandbox the profile's settings.json, CLAUDE.md, hooks, plugins, commands, agents,
+        skills and loose scripts are read-only, so nothing it does can plant code that runs on this
+        machine the next time you launch the profile directly. Log in with /login the first time:
+        a macOS Keychain login cannot be read from inside the sandbox.
+
+        Which profiles are sandboxed is kept in ~/.tabard/sandboxed, and their images in
+        ~/.tabard/images, outside every profile, so a sandbox cannot change either.
+        """;
 
     /// <summary>
     /// The first half of a launch on its own: record the choice and repoint ~/.claude, then stop.
@@ -325,12 +484,14 @@ internal static class Cli
         else
         {
             var active = ProfileStore.LastUsed();
+            var sandboxed = Sandboxing.Names();
             foreach (var profile in profiles)
             {
                 var marker = string.Equals(profile.Name, active, StringComparison.Ordinal)
                     ? "*"
                     : " ";
-                Console.WriteLine($"{marker} {profile.Name, -18}{profile.Describe()}");
+                var sandbox = Sandboxing.Mark(sandboxed.Contains(profile.Name));
+                Console.WriteLine($"{marker} {sandbox} {profile.Name, -18}{profile.Describe()}");
             }
         }
 
@@ -628,7 +789,13 @@ internal static class Cli
         return 0;
     }
 
-    private static int LaunchInto(Profile profile, IReadOnlyList<string> claudeArgs)
+    /// <summary><paramref name="sandbox"/> overrides the profile's own setting for this launch
+    /// only; null means follow it.</summary>
+    private static int LaunchInto(
+        Profile profile,
+        IReadOnlyList<string> claudeArgs,
+        bool? sandbox = null
+    )
     {
         foreach (var warning in Point(profile))
             Console.Error.WriteLine($"tabard: {warning}");
@@ -639,7 +806,7 @@ internal static class Cli
         using (ProfileStore.AcquireLock())
             DirectoryMemory.Remember(profile.Name);
 
-        return Launcher.Launch(profile, claudeArgs);
+        return Launcher.Launch(profile, claudeArgs, sandbox ?? Sandboxing.IsOn(profile.Name));
     }
 
     /// <summary>Record the choice and repoint ~/.claude under a lock, so two tabard runs racing
@@ -684,6 +851,7 @@ internal static class Cli
               tabard switch [name]        Point ~/.claude at a profile without launching
               tabard add <name>           Create a profile, choosing Anthropic or OpenRouter
               tabard rm <name>            Delete a profile
+              tabard sandbox <cmd>        Launch a profile inside a Docker sandbox, or not
               tabard ls                   List profiles
               tabard openrouter <cmd>     Configure a profile's OpenRouter settings
               tabard completion install   Install tab completion for zsh, bash or PowerShell
@@ -695,11 +863,13 @@ internal static class Cli
               enter            launch the highlighted profile, or create one on '+ new profile'
               o                reorder (up/down move it, o or enter done)
               r                rename the highlighted profile (enter saves, esc cancels)
+              s                launch the highlighted profile in a Docker sandbox, or not
               x then x         delete the highlighted profile
               esc or q         quit
 
             The picker keeps the order you put profiles in; it is saved in ~/.tabard/order.
             Each folder's last profile is saved in ~/.tabard/directories.json.
+            A mark beside a profile means it launches in a Docker sandbox; see 'tabard sandbox help'.
 
             Profiles live in ~/.tabard/profiles/<name> and are passed to Claude Code
             as CLAUDE_CONFIG_DIR, so each one keeps its own login, settings and history.

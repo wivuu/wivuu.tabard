@@ -49,6 +49,7 @@ tabard select                # pick or create a profile, then launch claude
 tabard use work              # launch a specific profile
 tabard switch work           # repoint ~/.claude at a profile, without launching
 tabard add personal          # create a profile (Anthropic or OpenRouter)
+tabard sandbox on work       # launch it inside a Docker sandbox from now on
 tabard ls                    # list profiles — never changes anything
 ```
 
@@ -60,6 +61,7 @@ tabard ls                    # list profiles — never changes anything
 | `tabard switch [name]` | Point `~/.claude` at a profile without launching |
 | `tabard add <name>` | Create a profile, choosing Anthropic or OpenRouter |
 | `tabard rm <name>` | Delete a profile |
+| `tabard sandbox on\|off <name>` | Launch a profile in a [Docker sandbox](#sandboxed-profiles), or not |
 | `tabard ls` | List profiles |
 | `tabard openrouter <cmd>` | Configure a profile's [OpenRouter settings](#openrouter-profiles) |
 | `tabard completion install` | Install [tab completion](#tab-completion) for zsh, bash or PowerShell |
@@ -77,11 +79,11 @@ straight into `claude` with the profile you last used there:
 ```
   Select a Claude profile
 
-  1 > work              erik@example.com  -  max  -  valid 7h
-  2   personal          erik@gmail.com    -  pro  -  refresh due
-    + new profile       name it, then log in or connect OpenRouter
+  1 > ■ work              erik@example.com  -  max  -  valid 7h
+  2     personal          erik@gmail.com    -  pro  -  refresh due
+      + new profile       name it, then log in or connect OpenRouter
 
-  up/down move   enter/1-9 launch   o reorder   r rename   x x delete   q quit
+  enter/1-9 launch   s ■ sandbox   o reorder   r rename   x x delete   q quit
 ```
 
 ## Tab completion
@@ -262,6 +264,90 @@ Claude Code cannot work without those — plus the aliases and routers, which de
 and would otherwise be filtered out of their own defaults. If OpenRouter can't be reached, a small
 built-in list is shown instead and any slug can still be set with a flag.
 
+## Sandboxed profiles
+
+A profile can launch Claude Code inside a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) —
+a microVM that sees the current folder (the whole git repository, when the folder is inside one) and
+nothing else of your machine. It needs `sbx` (`brew install docker/tap/sbx`,
+then `sbx login`) and macOS or Linux.
+
+In the picker, `s` turns it on or off for the highlighted profile. A `■` beside a name means it is
+on, and the `s` entry in the legend shows the highlighted profile's setting (`■` on, `□` off). From
+a script or a shell:
+
+```sh
+tabard sandbox on work          # every launch of 'work' goes through a sandbox
+tabard sandbox off work         # back to launching directly
+tabard sandbox                  # which profiles are sandboxed
+tabard use work --no-sandbox    # just this once, either way round
+tabard sandbox image work my/dotnet:1   # make work's sandboxes from another image
+tabard sandbox image work --default     # back to sbx's own
+```
+
+A sandboxed launch runs `sbx run claude` with the profile's directory as `CLAUDE_CONFIG_DIR`, the
+same as a direct launch, so login, history and settings are shared between the two. The current
+folder and the profile directory are mounted at the same paths they have on the host, which keeps
+the per-project entries in `.claude.json` lining up. There is one sandbox per profile and folder,
+named `tabard-<profile>-<folder>-<hash>`; launching again goes back into it, with whatever was
+installed in it. Inside a git repository the "folder" is the repository's root: it is what gets
+mounted, so git finds its `.git` from any subfolder, and the session starts in the folder you
+launched from. A worktree's or submodule's `.git` file points somewhere else, and that git directory
+is mounted too. A repository that cannot be mounted (one rooted at your home directory, say) falls
+back to the folder alone, with a warning.
+
+**Images.** sbx's default image has git, `gh`, python, uv, docker and the like, but no .NET or Node.
+Rather than install a toolchain in every sandbox, install it once, save the sandbox with
+`sbx template save <sandbox> <tag>`, and point the profile at it with `tabard sandbox image`. Any
+image `sbx run -t` takes will do. The image is fixed when a sandbox is made, so choosing one makes
+new sandboxes from then on and leaves the old ones for `sbx rm`. The choice lives in
+`~/.tabard/images`, outside every profile.
+
+What the sandbox can and cannot touch:
+
+- **Read-only:** the profile's `settings.json`, `CLAUDE.md`, `hooks/`, `plugins/`, `commands/`,
+  `agents/`, `skills/`, `output-styles/` and any loose script at the top of it. These either run
+  code or instruct Claude in a later session, and a sandbox that could rewrite them could plant a
+  hook that runs on your machine the next time the profile is launched directly. A missing
+  `settings.json` is created empty first, because read-only only covers what exists. Changing a
+  setting from inside the sandbox therefore does not stick — change it outside.
+- **Read-only too:** the repository's `.git/hooks` and `.git/config`. Git runs hooks, and config can
+  name programs (`core.hooksPath`, `core.fsmonitor`, aliases), so either would let a sandbox plant
+  something that runs the next time you use git here. The cost is that git commands that write
+  config fail inside the sandbox: `git push -u`, `git remote add`, a checkout that sets up
+  tracking. Commit, branch and push work; set upstreams from outside.
+- **Writable:** the current folder (or repository), and the rest of the profile — credentials, history and
+  `.claude.json` — which Claude Code has to update as it runs.
+- **The on/off list** is `~/.tabard/sandboxed`, outside every profile, so a sandbox cannot switch
+  itself off. For the same reason tabard refuses to sandbox a folder that contains `~/.tabard`,
+  such as your home directory.
+
+Things to know:
+
+- **Permission prompts stay on by default.** sbx's image always starts Claude Code with
+  `--dangerously-skip-permissions`; tabard passes `--settings` with
+  `disableBypassPermissionsMode` for the session so Claude Code still asks. To run without prompts,
+  ask for it the way you would directly — `tabard use work -- --dangerously-skip-permissions` (or
+  `--permission-mode bypassPermissions`) — and tabard leaves the setting out. Nothing is written
+  to the profile, so direct launches are unaffected.
+- **Your git identity comes along.** The sandbox has its own home, so tabard asks `git var` here
+  what a commit in this folder would record (config, `includeIf`, `GIT_AUTHOR_*`, or the identity
+  git makes up from your account) and passes it as `GIT_AUTHOR_*` and `GIT_COMMITTER_*` on every
+  launch. Pushing still needs credentials inside: an
+  SSH key in your agent (sbx forwards it), or `gh auth login` in the sandbox.
+- **Log in once inside the sandbox.** On macOS a direct launch keeps its login in the Keychain,
+  which the sandbox cannot read, so the first sandboxed launch of an Anthropic profile asks for
+  `/login`. That login is written to `.credentials.json` in the profile and reused from then on.
+  OpenRouter profiles carry their key in `settings.json` and need nothing.
+- **sbx registers an MCP gateway** in the profile's `.claude.json` when a sandbox starts. It points
+  at a host that only exists inside sandboxes, so tabard removes it again when the session ends.
+- **Mounts are fixed when a sandbox is made.** A folder like `hooks/` added to the profile later is
+  only read-only in sandboxes made after it existed, and renaming a profile leaves its old
+  sandboxes pointing at the old path. tabard says so; `sbx ls` and `sbx rm` tidy them up.
+- **The writable parts are still writable.** A sandbox can edit your project — including its own
+  `.claude/settings.json` or `.mcp.json` — and the profile's `.claude.json`, which can declare MCP
+  servers. Those take effect in any later session that opens them, sandboxed or not. Keeping a
+  sandboxed profile sandboxed is the way to keep that inside the box.
+
 ## Other ways to install
 
 The NuGet package id has to sit under the reserved `Wivuu.*` prefix; the command doesn't, which is
@@ -313,7 +399,7 @@ will run it.
 Or build the native binary yourself and drop it on your PATH:
 
 ```sh
-dotnet publish src/Wivuu.Tabard.CLI -c Release -r osx-arm64   # or linux-x64, win-x64
+dotnet publish src/Wivuu.Tabard.CLI -c Release -r osx-arm64 -f net11.0   # or linux-x64, win-x64
 ```
 
 `PublishAot` turns on whenever a RID is given, so this produces a single ~2.4 MB native

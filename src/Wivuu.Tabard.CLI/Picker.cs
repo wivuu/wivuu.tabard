@@ -26,7 +26,11 @@ internal static class Picker
     private const int NameWidth = 18;
 
     private const int HeaderLines = 2; // rows start below the title and its blank line
-    private const int NameColumn = 5; // ' ' + slot + ' ' + marker + ' '
+    private const int NameColumn = 7; // ' ' + slot + ' ' + marker + ' ' + sandbox mark + ' '
+
+    /// <summary>The colour of the sandbox mark, on rows the cursor is not on. The highlighted row
+    /// is all one colour, mark included, so the cursor is never harder to read than the mark.</summary>
+    private const ConsoleColor SandboxColour = ConsoleColor.Green;
 
     /// <summary>How many rows get a digit to launch them. Ten would need '0', which reads as a
     /// zeroth row rather than a tenth.</summary>
@@ -58,6 +62,7 @@ internal static class Picker
             Console.WriteLine();
 
         var top = Math.Max(0, Console.CursorTop - frameHeight);
+        var sandboxed = Sandboxing.Names();
         var index = 0;
         var offset = 0;
         var armed = -1;
@@ -108,6 +113,7 @@ internal static class Picker
                 offset = Scroll(offset, index, rows, total);
                 Render(
                     profiles,
+                    sandboxed,
                     index,
                     offset,
                     rows,
@@ -146,6 +152,7 @@ internal static class Picker
 
                                 notes.AddRange(result.Warnings);
                                 profiles[index] = result.Profile;
+                                sandboxed = Sandboxing.Names(); // The setting moved with the name.
                                 status = string.Equals(
                                     result.Profile.Name,
                                     subject.Name,
@@ -270,6 +277,34 @@ internal static class Picker
                         armed = -1;
                         break;
 
+                    // Launch only: 'switch' starts nothing, so there is nothing for this to change
+                    // about it. Saved straight away, like the order - there is nothing to confirm.
+                    case ConsoleKey.S when action is PickerAction.Launch:
+                        if (index >= profiles.Count)
+                            break;
+
+                        var name = profiles[index].Name;
+                        var on = !sandboxed.Contains(name);
+
+                        try
+                        {
+                            using (ProfileStore.AcquireLock())
+                                Sandboxing.Set(name, on);
+
+                            sandboxed = Sandboxing.Names();
+                            status = Sandboxing.Status(name, on);
+                        }
+                        catch (Exception ex)
+                        {
+                            status = $"could not change '{name}' - see below";
+                            notes.Add(
+                                $"could not change whether '{name}' is sandboxed: {ex.Message}"
+                            );
+                        }
+
+                        armed = -1;
+                        break;
+
                     case ConsoleKey.O:
                         // A mode with nothing to move in it is worse than no mode, and the new
                         // profile row is not one of the things that can be moved.
@@ -291,6 +326,7 @@ internal static class Picker
                             {
                                 notes.AddRange(ProfileStore.Delete(doomed));
                                 profiles.RemoveAt(index);
+                                sandboxed = Sandboxing.Names();
                                 status = $"deleted '{doomed.Name}'";
                             }
                             catch (Exception ex)
@@ -367,7 +403,8 @@ internal static class Picker
         PickerAction action,
         bool reordering,
         bool renaming,
-        bool onNewRow = false
+        bool onNewRow = false,
+        bool sandboxed = false
     )
     {
         if (renaming)
@@ -380,9 +417,17 @@ internal static class Picker
         if (onNewRow)
             return "  up/down move   enter new profile   q quit";
 
-        var verb = action is PickerAction.Switch ? "switch" : "launch";
-        return $"  up/down move   enter/1-9 {verb}   o reorder   r rename   x x delete   q quit";
+        // 's' shows the highlighted profile's setting rather than just naming the key, which is also
+        // what explains the mark beside the names. That costs the room 'up/down move' had - the one
+        // entry nobody needs telling.
+        if (action is PickerAction.Launch)
+            return $"  enter/1-9 launch   {SandboxKey(sandboxed)}   o reorder   r rename   x x delete   q quit";
+
+        return "  up/down move   enter/1-9 switch   o reorder   r rename   x x delete   q quit";
     }
+
+    internal static string SandboxKey(bool sandboxed) =>
+        $"s {Sandboxing.Legend(sandboxed)} sandbox";
 
     /// <summary>
     /// Moves an item to another position and returns where it ended up. Clamped rather than
@@ -429,6 +474,7 @@ internal static class Picker
 
     private static void Render(
         IReadOnlyList<Profile> profiles,
+        HashSet<string> sandboxed,
         int index,
         int offset,
         int rows,
@@ -441,10 +487,10 @@ internal static class Picker
         PickerAction action
     )
     {
-        var lines = new List<(string Text, ConsoleColor? Color)>(frameHeight)
+        var lines = new List<Line>(frameHeight)
         {
-            ("  Select a Claude profile", ConsoleColor.White),
-            ("", null),
+            new("  Select a Claude profile", ConsoleColor.White),
+            new("", null),
         };
 
         for (var i = offset; i < profiles.Count && i < offset + rows; i++)
@@ -453,22 +499,25 @@ internal static class Picker
             var selected = i == index;
             var name = Term.Clip(profile.Name, NameWidth - 1).PadRight(NameWidth);
             var marker = selected ? ">" : " ";
+            var on = sandboxed.Contains(profile.Name);
 
             // Every row form carries the gutter, so a row never shifts sideways on its way into
-            // being renamed or armed - and NameColumn stays the truth for the caret.
-            var gutter = $" {Gutter(i)}{marker} ";
+            // being renamed or armed - and NameColumn stays the truth for the caret. The sandbox
+            // mark is part of it for the same reason: a blank where there is no mark keeps every
+            // name in one column.
+            var gutter = $" {Gutter(i)}{marker} {Sandboxing.Mark(on)} ";
 
             // The field takes the whole row: a name being typed can outgrow the name column, and
             // what the profile currently holds is not what is being edited.
             if (draft is not null && selected)
             {
-                lines.Add(($"{gutter}{draft}", ConsoleColor.Yellow));
+                lines.Add(new($"{gutter}{draft}", ConsoleColor.Yellow));
                 continue;
             }
 
             if (i == armed)
             {
-                lines.Add(($"{gutter}{name}press x again to delete", ConsoleColor.Red));
+                lines.Add(new($"{gutter}{name}press x again to delete", ConsoleColor.Red));
                 continue;
             }
 
@@ -480,7 +529,13 @@ internal static class Picker
                     : ConsoleColor.Cyan
                 : null;
 
-            lines.Add(($"{gutter}{name}{profile.Describe()}", colour));
+            lines.Add(
+                new(
+                    $"{gutter}{name}{profile.Describe()}",
+                    colour,
+                    on && !selected ? new Accent(NameColumn - 2, 1, SandboxColour) : null
+                )
+            );
         }
 
         var total = RowCount(profiles.Count, action);
@@ -494,8 +549,8 @@ internal static class Picker
             var marker = onNewRow ? ">" : " ";
 
             lines.Add(
-                (
-                    $" {Gutter(Slots)}{marker} {label}{NewProfileDetail}",
+                new(
+                    $" {Gutter(Slots)}{marker}   {label}{NewProfileDetail}",
                     onNewRow ? ConsoleColor.Cyan : null
                 )
             );
@@ -503,15 +558,23 @@ internal static class Picker
 
         var hidden = total - rows;
 
-        var help = Help(action, reordering, renaming: draft is not null, onNewRow);
+        var highlightedOn = !onNewRow && sandboxed.Contains(profiles[index].Name);
+        var help = Help(action, reordering, renaming: draft is not null, onNewRow, highlightedOn);
 
-        lines.Add(("", null));
-        lines.Add((hidden > 0 ? $"{help}   ({hidden} more)" : help, ConsoleColor.DarkGray));
-        lines.Add((status is null ? "" : "  " + status, ConsoleColor.Yellow));
+        // The legend's mark in the rows' colour when it is on, so it reads as the same thing.
+        var key = SandboxKey(sandboxed: true);
+        var at = help.IndexOf(key, StringComparison.Ordinal);
+        var legend = highlightedOn && at >= 0 ? new Accent(at + 2, 1, SandboxColour) : null;
+
+        lines.Add(new("", null));
+        lines.Add(
+            new(hidden > 0 ? $"{help}   ({hidden} more)" : help, ConsoleColor.DarkGray, legend)
+        );
+        lines.Add(new(status is null ? "" : "  " + status, ConsoleColor.Yellow));
 
         // Always paint the full reserved frame so deleted rows are cleared.
         while (lines.Count < frameHeight)
-            lines.Add(("", null));
+            lines.Add(new("", null));
 
         var width = Term.WindowWidth();
 
@@ -526,14 +589,36 @@ internal static class Picker
                 break; // Window shrank under us; the next keystroke redraws.
             }
 
-            var (text, color) = lines[i];
-            if (color is { } c)
-                Console.ForegroundColor = c;
+            var line = lines[i];
+            var text = Term.Clip(line.Text, width).PadRight(width);
 
-            Console.Write(Term.Clip(text, width).PadRight(width));
-            Console.ResetColor();
+            if (line.Accent is { } accent && accent.Start + accent.Length <= text.Length)
+            {
+                Write(text[..accent.Start], line.Color);
+                Write(text.Substring(accent.Start, accent.Length), accent.Color);
+                Write(text[(accent.Start + accent.Length)..], line.Color);
+            }
+            else
+            {
+                Write(text, line.Color);
+            }
         }
     }
+
+    private static void Write(string text, ConsoleColor? color)
+    {
+        if (color is { } c)
+            Console.ForegroundColor = c;
+
+        Console.Write(text);
+        Console.ResetColor();
+    }
+
+    /// <summary>One line of the frame: its text, its colour, and at most one run in another colour.
+    /// </summary>
+    private sealed record Line(string Text, ConsoleColor? Color, Accent? Accent = null);
+
+    private sealed record Accent(int Start, int Length, ConsoleColor Color);
 
     private static void Finish(int top, int frameHeight)
     {
@@ -559,8 +644,11 @@ internal static class Picker
         }
 
         Console.Error.WriteLine("tabard: profiles available:");
+        var sandboxed = Sandboxing.Names();
         foreach (var profile in profiles)
-            Console.Error.WriteLine($"  {profile.Name}  ({profile.Describe()})");
+            Console.Error.WriteLine(
+                $"  {Sandboxing.Mark(sandboxed.Contains(profile.Name))} {profile.Name}  ({profile.Describe()})"
+            );
 
         // Naming the command they actually typed: 'tabard use' would start a session someone who
         // ran 'tabard switch' is not asking for.

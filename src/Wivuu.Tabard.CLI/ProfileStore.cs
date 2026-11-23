@@ -334,8 +334,25 @@ internal static class ProfileStore
         }
 
         DirectoryMemory.RenameProfile(profile.Name, newName);
+        Sandboxing.MoveImage(profile.Name, newName);
 
-        return new RenameResult(renamed, linked ? Relink(renamed) : []);
+        var warnings = new List<string>();
+
+        // The setting follows the profile. Its sandboxes cannot: sbx fixed their mounts at the old
+        // path, so the next launch makes new ones and the old ones are left for 'sbx rm'.
+        if (Sandboxing.IsOn(profile.Name))
+        {
+            Sandboxing.RenameProfile(profile.Name, newName);
+            warnings.Add(
+                $"'{profile.Name}' had Docker sandboxes, which still point at its old directory. "
+                    + "Remove them with 'sbx ls' and 'sbx rm'; the next launch makes new ones."
+            );
+        }
+
+        if (linked)
+            warnings.AddRange(Relink(renamed));
+
+        return new RenameResult(renamed, warnings);
     }
 
     /// <summary>
@@ -402,22 +419,37 @@ internal static class ProfileStore
         if (Order() is { Count: > 0 } order && order.Remove(profile.Name))
             TrySetOrder(order);
 
+        var sandboxed = Sandboxing.IsOn(profile.Name);
+
         // A block, closed before the acquire below: the lock is not reentrant, so holding it there
         // would spend AcquireLock's whole retry budget waiting on ourselves.
         using (AcquireLock())
+        {
             DirectoryMemory.ForgetProfile(profile.Name);
+            Sandboxing.ForgetProfile(profile.Name);
+            Sandboxing.MoveImage(profile.Name, null);
+        }
+
+        // Not removed for you: tabard cannot tell its sandboxes apart from ones made by hand
+        // without asking sbx about every one, and a sandbox can hold work that is not anywhere else.
+        List<string> notes = sandboxed
+            ?
+            [
+                $"'{profile.Name}' may have left Docker sandboxes behind. See 'sbx ls' to remove them.",
+            ]
+            : [];
 
         if (!linkedDir && !linkedJson)
-            return [];
+            return notes;
 
         using var guard = AcquireLock();
 
         var survivor = (LastUsed() is { } name ? Find(name) : null) ?? List().FirstOrDefault();
         if (survivor is null)
-            return []; // Nothing left to point at, and an absent ~/.claude is the honest state.
+            return notes; // Nothing left to point at, and an absent ~/.claude is the honest state.
 
         SetLastUsed(survivor.Name);
-        return Relink(survivor);
+        return [.. notes, .. Relink(survivor)];
     }
 
     /// <summary>

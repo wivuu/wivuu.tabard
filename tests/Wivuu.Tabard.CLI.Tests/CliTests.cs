@@ -308,4 +308,147 @@ public class CliTests
     /// </summary>
     private static void SkipIfThereIsATerminal() =>
         Skip.When(Term.Interactive, "needs the selector's no-terminal fallback");
+
+    [Test]
+    public async Task Sandbox_on_and_off_change_how_a_profile_launches()
+    {
+        ProfileStore.Create("work");
+
+        await Assert.That(global::Cli.Run(["sandbox", "on", "work"])).IsEqualTo(0);
+        await Assert.That(Sandboxing.IsOn("work")).IsTrue();
+
+        await Assert.That(global::Cli.Run(["sandbox", "off", "work"])).IsEqualTo(0);
+        await Assert.That(Sandboxing.IsOn("work")).IsFalse();
+    }
+
+    [Test]
+    public async Task Sandbox_reports_a_name_that_is_not_there()
+    {
+        await Assert
+            .That(() => global::Cli.Run(["sandbox", "on", "nope"]))
+            .Throws<InvalidOperationException>()
+            .WithMessageContaining("tabard ls");
+        await Assert.That(Sandboxing.Names()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Sandbox_with_nothing_else_changes_nothing()
+    {
+        ProfileStore.Create("work");
+
+        await Assert.That(global::Cli.Run(["sandbox"])).IsEqualTo(0);
+        await Assert.That(global::Cli.Run(["sandbox", "work"])).IsEqualTo(0);
+        await Assert.That(Sandboxing.IsOn("work")).IsFalse();
+    }
+
+    /// <summary>The whole feature, short of a real sandbox: a sandboxed profile goes through sbx
+    /// with the folder and the profile mounted, and claude itself is never started directly.</summary>
+    [Test]
+    public async Task A_sandboxed_profile_launches_through_sbx()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var claude = new FakeClaude();
+        using var sbx = new FakeSbx();
+        var work = ProfileStore.Create("work");
+        global::Cli.Run(["sandbox", "on", "work"]);
+
+        await Assert.That(global::Cli.Run(["use", "work", "--", "--continue"])).IsEqualTo(0);
+
+        await Assert.That(claude.Launches).IsEmpty();
+        await Assert.That(sbx.Runs.Count).IsEqualTo(1);
+
+        var run = sbx.Runs[0];
+        var dir = Path.GetFullPath(work.Dir);
+        await Assert.That(run.Take(2)).IsEquivalentTo(new[] { "run", "claude" });
+        await Assert.That(run).Contains($"CLAUDE_CONFIG_DIR={dir}");
+        await Assert.That(run).Contains(Directory.GetCurrentDirectory());
+        await Assert.That(run).Contains(dir);
+        await Assert.That(run).Contains($"{Path.Combine(dir, "settings.json")}:ro");
+        await Assert
+            .That(run.TakeLast(4))
+            .IsEquivalentTo(new[] { "--", "--settings", Sandboxing.KeepPrompts, "--continue" });
+    }
+
+    [Test]
+    public async Task Sandbox_image_sets_and_clears_a_profiles_image()
+    {
+        ProfileStore.Create("work");
+
+        await Assert.That(global::Cli.Run(["sandbox", "image", "work", "my/image:1"])).IsEqualTo(0);
+        await Assert.That(Sandboxing.ImageOf("work")).IsEqualTo("my/image:1");
+
+        await Assert.That(global::Cli.Run(["sandbox", "image", "work", "--default"])).IsEqualTo(0);
+        await Assert.That(Sandboxing.ImageOf("work")).IsNull();
+    }
+
+    [Test]
+    public async Task A_sandboxed_launch_uses_the_profiles_image()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var sbx = new FakeSbx();
+        ProfileStore.Create("work");
+        global::Cli.Run(["sandbox", "on", "work"]);
+        global::Cli.Run(["sandbox", "image", "work", "my/image:1"]);
+
+        await Assert.That(global::Cli.Run(["use", "work"])).IsEqualTo(0);
+
+        var run = sbx.Runs[0];
+        var at = run.ToList().IndexOf("-t");
+        await Assert.That(at).IsGreaterThan(0);
+        await Assert.That(run[at + 1]).IsEqualTo("my/image:1");
+    }
+
+    [Test]
+    public async Task A_second_launch_goes_back_into_the_same_sandbox()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var claude = new FakeClaude();
+        using var sbx = new FakeSbx();
+        ProfileStore.Create("work");
+        global::Cli.Run(["sandbox", "on", "work"]);
+        // The tests run inside this repository, so the sandbox is named for its root.
+        var root = Sandboxing.ResolveWorkspace(Directory.GetCurrentDirectory(), []).Root;
+        sbx.Exists(Sandboxing.SandboxName("work", root));
+
+        await Assert.That(global::Cli.Run(["use", "work"])).IsEqualTo(0);
+
+        await Assert
+            .That(sbx.Runs[0].Take(3))
+            .IsEquivalentTo(new[] { "run", "--name", Sandboxing.SandboxName("work", root) });
+    }
+
+    [Test]
+    public async Task Use_overrides_the_setting_for_one_launch()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var claude = new FakeClaude();
+        using var sbx = new FakeSbx();
+        ProfileStore.Create("work");
+        ProfileStore.Create("personal");
+        global::Cli.Run(["sandbox", "on", "work"]);
+
+        await Assert.That(global::Cli.Run(["use", "work", "--no-sandbox"])).IsEqualTo(0);
+        await Assert
+            .That(global::Cli.Run(["use", "personal", "--sandbox", "-p", "hi"]))
+            .IsEqualTo(0);
+
+        await Assert.That(claude.Launches.Count).IsEqualTo(1);
+        await Assert.That(claude.Launches[0].Args).IsEqualTo("");
+        await Assert.That(sbx.Runs.Count).IsEqualTo(1);
+        await Assert
+            .That(sbx.Runs[0].TakeLast(5))
+            .IsEquivalentTo(new[] { "--", "--settings", Sandboxing.KeepPrompts, "-p", "hi" });
+
+        // One launch each, and neither changed what the profiles are set to.
+        await Assert.That(Sandboxing.IsOn("work")).IsTrue();
+        await Assert.That(Sandboxing.IsOn("personal")).IsFalse();
+    }
 }
