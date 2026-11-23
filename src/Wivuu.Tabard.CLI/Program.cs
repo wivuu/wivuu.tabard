@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using Wivuu.Tabard.Cli;
 
 try
@@ -18,14 +19,15 @@ internal static class Cli
         if (args.Length == 0)
             return Default([]);
 
-        // '--' forces everything after it through to claude, so 'tabard -- --help'
-        // reaches Claude Code's own help rather than tabard's.
+        // '--' forces everything after it through to claude, so 'tabard -- --help' and
+        // 'tabard -- --version' reach Claude Code's own rather than tabard's.
         if (args[0] == "--")
             return Default(args[1..]);
 
         return args[0] switch
         {
             "help" or "--help" or "-h" => Help(),
+            "version" or "--version" or "-v" => Version(),
             "ls" or "list" => List(),
             "select" => Select(args[1..]),
             "add" or "new" => Add(args[1..]),
@@ -38,6 +40,29 @@ internal static class Cli
             "__complete" => Complete(args[1..]),
             _ => Default(args),
         };
+    }
+
+    /// <summary>
+    /// The version tabard was built as: the release tag, injected with -p:Version, or the csproj's
+    /// fallback for a local build. The SDK appends '+&lt;commit&gt;' to the informational version;
+    /// that is dropped, as nobody asking 'tabard --version' is asking which commit.
+    /// </summary>
+    internal static string VersionText()
+    {
+        var informational = typeof(Cli)
+            .Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+
+        var version =
+            informational ?? typeof(Cli).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+        var plus = version.IndexOf('+');
+        return plus >= 0 ? version[..plus] : version;
+    }
+
+    private static int Version()
+    {
+        Console.WriteLine($"tabard {VersionText()}");
+        return 0;
     }
 
     private const string SwitchUsage = "usage: tabard switch [name]";
@@ -903,6 +928,7 @@ internal static class Cli
               tabard ls                   List profiles
               tabard openrouter <cmd>     Configure a profile's OpenRouter settings
               tabard completion install   Install tab completion for zsh, bash or PowerShell
+              tabard --version            Show tabard's version ('tabard -- --version' for Claude Code's)
               tabard -- <claude args>     Force everything through to claude
 
             Picker keys:

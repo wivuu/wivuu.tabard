@@ -67,7 +67,8 @@ tabard ls                    # list profiles — never changes anything
 | `tabard completion install` | Install [tab completion](#tab-completion) for zsh, bash or PowerShell |
 | `tabard -- <claude args>` | Force everything through to claude |
 
-`tabard --help` is tabard's help; `tabard -- --help` reaches Claude Code's.
+`tabard --help` and `tabard --version` are tabard's own; `tabard -- --help` and
+`tabard -- --version` reach Claude Code's.
 
 **First run** adopts your existing login, so there is nothing to set up: `~/.claude` is moved to
 `~/.tabard/profiles/default` and linked back.

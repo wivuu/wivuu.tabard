@@ -41,6 +41,7 @@ internal static class Completions
         "completion",
         "help",
         "--help",
+        "--version",
         "--",
     ];
 
