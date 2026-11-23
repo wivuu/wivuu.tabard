@@ -1,5 +1,6 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Wivuu.Tabard.Cli;
 
@@ -189,16 +190,17 @@ internal static class ProfileCopy
             try
             {
                 var text = File.ReadAllText(json);
-                var updated = text.Replace(from, to, StringComparison.Ordinal);
+                var updated = Repoint(text, from, to, PathEnd);
 
                 // A profile adopted from ~/.claude names its plugins by that path, which is only
-                // this profile while ~/.claude links to it. The trailing separator keeps
-                // ~/.claude.json, a different file, out of it.
+                // this profile while ~/.claude links to it. Only what is inside it: ~/.claude.json
+                // is a different file.
                 if (harness is Harness.Claude)
-                    updated = updated.Replace(
-                        ClaudeDirPrefix,
-                        to + Path.DirectorySeparatorChar,
-                        StringComparison.Ordinal
+                    updated = Repoint(
+                        updated,
+                        Path.TrimEndingDirectorySeparator(Paths.ClaudeDir),
+                        to,
+                        Separator
                     );
 
                 if (updated != text)
@@ -307,8 +309,27 @@ internal static class ProfileCopy
         }
     }
 
-    private static string ClaudeDirPrefix =>
-        Path.TrimEndingDirectorySeparator(Paths.ClaudeDir) + Path.DirectorySeparatorChar;
+    /// <summary>Where a path in JSON can end: at a separator going further in, or at the end of
+    /// the string. Without it, copying 'work' would repoint every path naming 'work2'.</summary>
+    private const string PathEnd = """(?=[/\\"])""";
+
+    private const string Separator = """(?=[/\\])""";
+
+    /// <summary>
+    /// <paramref name="from"/> to <paramref name="to"/> wherever it is followed by
+    /// <paramref name="end"/>. A Windows path appears in JSON with its backslashes escaped, so
+    /// there the escaped spelling is replaced as well.
+    /// </summary>
+    private static string Repoint(string text, string from, string to, string end)
+    {
+        string Replace(string input, string a, string b) =>
+            Regex.Replace(input, Regex.Escape(a) + end, b.Replace("$", "$$"));
+
+        if (OperatingSystem.IsWindows())
+            text = Replace(text, from.Replace(@"\", @"\\"), to.Replace(@"\", @"\\"));
+
+        return Replace(text, from, to);
+    }
 
     private static IEnumerable<string> JsonToRepoint(string dir)
     {

@@ -51,27 +51,58 @@ public class ProfileCopyTests
     public async Task Copy_points_json_at_the_new_profile()
     {
         var from = ProfileStore.Create("work");
+        var sibling = ProfileStore.Create("work2");
+        var sep = Path.DirectorySeparatorChar;
         Directory.CreateDirectory(Path.Combine(from.Dir, "plugins"));
-        File.WriteAllText(
+        WriteJson(
             Path.Combine(from.Dir, "plugins", "installed_plugins.json"),
-            $$"""{ "installPath": "{{from.Dir}}/plugins/cache/x", "installLocation": "{{Paths.ClaudeDir}}/plugins/marketplaces/m", "json": "{{Paths.ClaudeJson}}" }"""
+            ("installPath", $"{from.Dir}{sep}plugins{sep}cache{sep}x"),
+            ("installLocation", $"{Paths.ClaudeDir}/plugins/marketplaces/m"),
+            ("json", Paths.ClaudeJson),
+            ("root", from.Dir),
+            ("sibling", $"{sibling.Dir}{sep}status.sh")
         );
-        File.WriteAllText(
-            Path.Combine(from.Dir, "settings.json"),
-            $$"""{ "statusLine": { "command": "{{from.Dir}}/status.sh" } }"""
-        );
+        WriteJson(Path.Combine(from.Dir, "settings.json"), ("statusLine", $"{from.Dir}/status.sh"));
 
         var to = ProfileStore.Create("job");
-        ProfileCopy.Copy(Harness.Claude, ProfileCopy.Resolve("work", Harness.Claude), to.Dir);
+        await Assert
+            .That(
+                ProfileCopy.Copy(
+                    Harness.Claude,
+                    ProfileCopy.Resolve("work", Harness.Claude),
+                    to.Dir
+                )
+            )
+            .IsEmpty();
 
-        var plugins = File.ReadAllText(Path.Combine(to.Dir, "plugins", "installed_plugins.json"));
-        var settings = File.ReadAllText(Path.Combine(to.Dir, "settings.json"));
-        await Assert.That(plugins).Contains($"{to.Dir}/plugins/cache/x");
-        await Assert.That(plugins).Contains($"{to.Dir}/plugins/marketplaces/m");
-        await Assert.That(plugins).Contains(Paths.ClaudeJson);
-        await Assert.That(settings).Contains($"{to.Dir}/status.sh");
-        await Assert.That(settings).DoesNotContain(from.Dir + "/");
+        var plugins = ReadJson(Path.Combine(to.Dir, "plugins", "installed_plugins.json"));
+        await Assert
+            .That(plugins["installPath"])
+            .IsEqualTo($"{to.Dir}{sep}plugins{sep}cache{sep}x");
+        await Assert.That(plugins["installLocation"]).IsEqualTo($"{to.Dir}/plugins/marketplaces/m");
+        await Assert.That(plugins["json"]).IsEqualTo(Paths.ClaudeJson);
+        await Assert.That(plugins["root"]).IsEqualTo(to.Dir);
+        // 'work' is the start of 'work2', and that profile is not the one being copied.
+        await Assert.That(plugins["sibling"]).IsEqualTo($"{sibling.Dir}{sep}status.sh");
+
+        var settings = ReadJson(Path.Combine(to.Dir, "settings.json"));
+        await Assert.That(settings["statusLine"]).IsEqualTo($"{to.Dir}/status.sh");
     }
+
+    /// <summary>Written by a serializer, as Claude Code writes them: a Windows path in JSON has
+    /// its backslashes escaped, which is the spelling the copy has to find.</summary>
+    private static void WriteJson(string path, params (string Key, string Value)[] pairs) =>
+        File.WriteAllText(
+            path,
+            System.Text.Json.JsonSerializer.Serialize(
+                pairs.ToDictionary(pair => pair.Key, pair => pair.Value)
+            )
+        );
+
+    private static Dictionary<string, string> ReadJson(string path) =>
+        System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(
+            File.ReadAllText(path)
+        )!;
 
     [Test]
     public async Task Pi_copies_its_config_but_not_auth_or_sessions()
@@ -148,6 +179,10 @@ public class ProfileCopyTests
     [Test]
     public async Task Keychain_service_hashes_the_config_dir()
     {
+        // The Keychain, and Claude Code's naming of what it keeps there, is macOS's alone.
+        if (!OperatingSystem.IsMacOS())
+            return;
+
         await Assert
             .That(Keychain.ServiceFor("/Users/erik/.tabard/profiles/personal"))
             .IsEqualTo("Claude Code-credentials-d5edd08c");
